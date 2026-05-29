@@ -1,0 +1,3 @@
+# Real logistics training data (downloaded by app/data/download_data.py)
+delhivery_logistics.csv
+*.parquet
