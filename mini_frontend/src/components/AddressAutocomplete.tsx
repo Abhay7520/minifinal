@@ -137,7 +137,7 @@ export default function AddressAutocomplete({
         />
 
         {open && suggestions.length > 0 && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1.5 overflow-hidden rounded-xl border border-white/10 bg-[#0c0c16]/98 shadow-2xl backdrop-blur-xl">
+          <div className="absolute left-0 right-0 top-full z-[100] mt-1.5 overflow-hidden rounded-xl border border-white/15 bg-[#0c0c16] shadow-2xl shadow-black/60">
             <div className="px-3 py-2 border-b border-white/5">
               <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">
                 AI Address Suggestions
