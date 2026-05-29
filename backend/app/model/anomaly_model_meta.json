@@ -1,0 +1,12 @@
+{
+  "model_type": "isolation_forest",
+  "dataset": "Simulated Logistics Activity Logs",
+  "training_rows": 1500,
+  "anomalies_detected_in_train": 225,
+  "contamination": 0.15,
+  "features": [
+    "inactive_hours",
+    "expected_transition_hours",
+    "inactive_ratio"
+  ]
+}

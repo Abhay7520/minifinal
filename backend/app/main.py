@@ -6,14 +6,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routes.address import router as address_router
 from app.routes.eta import router as eta_router
+from app.routes.risk import router as risk_router
+from app.routes.tracking import router as tracking_router
+from app.routes.anomaly import router as anomaly_router
 from app.services.data_loader import data_store
 from app.services.eta_service import ensure_model_trained
+from app.services.risk_service import ensure_risk_model_trained
+from app.services.anomaly_service import ensure_anomaly_model_trained
+from app.utils.mongo import db_service
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     data_store.load()
+    db_service.connect()
     ensure_model_trained()
+    ensure_risk_model_trained()
+    ensure_anomaly_model_trained()
     yield
 
 
@@ -34,6 +43,9 @@ app.add_middleware(
 
 app.include_router(address_router)
 app.include_router(eta_router)
+app.include_router(risk_router)
+app.include_router(tracking_router)
+app.include_router(anomaly_router)
 
 
 @app.get("/health")

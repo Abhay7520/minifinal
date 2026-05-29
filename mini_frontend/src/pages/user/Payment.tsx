@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CreditCard, Smartphone, Banknote, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { bookParcel } from "@/services/parcelService";
+import { toast } from "sonner";
 
 const methods = [
   { id: "upi", label: "UPI", icon: Smartphone, desc: "Pay via UPI ID" },
@@ -15,11 +17,31 @@ const methods = [
 
 const Payment = () => {
   const [selected, setSelected] = useState("upi");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handlePay = (e: React.FormEvent) => {
+  const pendingBookingRaw = sessionStorage.getItem("pending_booking");
+  const pendingBooking = pendingBookingRaw ? JSON.parse(pendingBookingRaw) : null;
+
+  const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/user/confirmation");
+    if (!pendingBooking) {
+      toast.error("No pending booking found. Please restart from Book Parcel.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await bookParcel(pendingBooking);
+      sessionStorage.setItem("confirmed_tracking_id", response.tracking_id);
+      toast.success("Payment successful! Parcel booked.");
+      navigate("/user/confirmation");
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Booking creation failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -37,6 +59,7 @@ const Payment = () => {
               {methods.map((m) => (
                 <button
                   key={m.id}
+                  disabled={loading}
                   onClick={() => setSelected(m.id)}
                   className={`flex w-full items-center gap-4 rounded-lg border p-4 text-left transition-all ${
                     selected === m.id ? "border-orange-500/50 bg-orange-500/10" : "border-white/[0.08] hover:border-white/20"
@@ -57,22 +80,22 @@ const Payment = () => {
             {selected === "upi" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4">
                 <Label className="text-white/70">UPI ID</Label>
-                <Input className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="yourname@upi" defaultValue="john@okaxis" />
+                <Input disabled={loading} className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="yourname@upi" defaultValue="john@okaxis" />
               </motion.div>
             )}
 
             {selected === "card" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 space-y-3">
-                <div><Label className="text-white/70">Card Number</Label><Input className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="1234 5678 9012 3456" /></div>
+                <div><Label className="text-white/70">Card Number</Label><Input disabled={loading} className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="1234 5678 9012 3456" /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><Label className="text-white/70">Expiry</Label><Input className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="MM/YY" /></div>
-                  <div><Label className="text-white/70">CVV</Label><Input className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="123" type="password" /></div>
+                  <div><Label className="text-white/70">Expiry</Label><Input disabled={loading} className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="MM/YY" /></div>
+                  <div><Label className="text-white/70">CVV</Label><Input disabled={loading} className="mt-1 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-orange-500/50" placeholder="123" type="password" /></div>
                 </div>
               </motion.div>
             )}
 
-            <Button onClick={handlePay} className="mt-6 w-full bg-gradient-to-r from-orange-500 to-violet-600 text-white hover:opacity-90">
-              {selected === "cod" ? "Confirm Booking" : "Pay ₹185"}
+            <Button onClick={handlePay} disabled={loading} className="mt-6 w-full bg-gradient-to-r from-orange-500 to-violet-600 text-white hover:opacity-90">
+              {loading ? "Processing Cargo Booking..." : selected === "cod" ? "Confirm Booking" : `Pay ₹${pendingBooking ? pendingBooking.price_total.toLocaleString("en-IN") : "185"}`}
             </Button>
           </div>
         </div>
@@ -81,12 +104,12 @@ const Payment = () => {
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm">
             <h3 className="mb-4 font-display text-lg font-semibold text-white">Order Summary</h3>
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-white/50">From</span><span className="text-white">Pune, MH</span></div>
-              <div className="flex justify-between"><span className="text-white/50">To</span><span className="text-white">New Delhi, DL</span></div>
-              <div className="flex justify-between"><span className="text-white/50">Weight</span><span className="text-white">2.5 kg</span></div>
-              <div className="flex justify-between"><span className="text-white/50">Type</span><span className="text-white">Standard</span></div>
+              <div className="flex justify-between"><span className="text-white/50">From</span><span className="text-white truncate max-w-[120px]">{pendingBooking ? pendingBooking.source_address.split(',')[0] : "Pune, MH"}</span></div>
+              <div className="flex justify-between"><span className="text-white/50">To</span><span className="text-white truncate max-w-[120px]">{pendingBooking ? pendingBooking.destination_address.split(',')[0] : "New Delhi, DL"}</span></div>
+              <div className="flex justify-between"><span className="text-white/50">Weight</span><span className="text-white">{pendingBooking ? `${pendingBooking.weight} kg` : "2.5 kg"}</span></div>
+              <div className="flex justify-between"><span className="text-white/50">Type</span><span className="text-white capitalize">{pendingBooking ? pendingBooking.parcel_type : "Standard"}</span></div>
               <div className="border-t border-white/[0.08] pt-3 flex justify-between font-semibold text-white">
-                <span>Total</span><span className="text-orange-400">₹185</span>
+                <span>Total</span><span className="text-orange-400">₹{pendingBooking ? pendingBooking.price_total.toLocaleString("en-IN") : "185"}</span>
               </div>
             </div>
           </div>

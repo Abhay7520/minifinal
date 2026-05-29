@@ -1,0 +1,15 @@
+{
+  "model_type": "ml_random_forest_classifier",
+  "dataset": "Delhivery Logistics (Augmented for Risk)",
+  "training_rows": 25583,
+  "accuracy": 0.9781,
+  "features": [
+    "distance_km",
+    "weight_kg",
+    "parcel_type_enc",
+    "delivery_mode",
+    "route_complexity",
+    "weather_enc",
+    "congestion_enc"
+  ]
+}

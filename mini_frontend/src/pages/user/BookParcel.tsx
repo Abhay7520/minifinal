@@ -125,6 +125,11 @@ const BookParcel = () => {
   const [timeSlot, setTimeSlot] = useState<TimeSlot>("Anytime");
   const [dropInstructions, setDropInstructions] = useState("Leave with security if not home");
   const [insurance, setInsurance] = useState<InsuranceTier>("standard");
+  const [senderName, setSenderName] = useState("Rohan Sharma");
+  const [senderPhone, setSenderPhone] = useState("+91 98765 43210");
+  const [receiverName, setReceiverName] = useState("Priya Mehta");
+  const [receiverPhone, setReceiverPhone] = useState("+91 91234 56789");
+
 
   // Step 4 — ETA / AI Insights
   const [aiAnalyzed, setAiAnalyzed] = useState(false);
@@ -307,6 +312,58 @@ const BookParcel = () => {
     setStep((s) => Math.min(5, s + 1));
   };
 
+  const handleProceedToPayment = () => {
+    if (!validationResult) {
+      toast.error("Addresses must be validated first");
+      return;
+    }
+    
+    const weatherOptions = ["Clear", "Rainy", "Foggy", "Stormy"];
+    const simulatedWeather = validationResult.route.distance_km > 500 
+      ? weatherOptions[Math.floor(Math.random() * 4)] 
+      : "Clear";
+    const simulatedCongestion = validationResult.route.distance_km > 300 
+      ? ["Low", "Medium", "High"][Math.floor(Math.random() * 3)] 
+      : "Low";
+
+    const bookingData = {
+      sender_name: senderName,
+      sender_phone: senderPhone,
+      source_address: sourceAddress,
+      source_lat: validationResult.source.lat,
+      source_lng: validationResult.source.lng,
+      source_po: validationResult.nearest_source_postoffice.name,
+      
+      receiver_name: receiverName,
+      receiver_phone: receiverPhone,
+      destination_address: destAddress,
+      dest_lat: validationResult.destination.lat,
+      dest_lng: validationResult.destination.lng,
+      dest_po: validationResult.nearest_destination_postoffice.name,
+      
+      weight,
+      parcel_type: parcelType,
+      declared_value: declaredValue,
+      category,
+      time_slot: timeSlot,
+      insurance,
+      
+      distance_km: validationResult.route.distance_km,
+      duration_hours: validationResult.route.duration_hours,
+      duration_text: validationResult.route.duration_text,
+      transit_days: validationResult.route.transit_days,
+      route_coordinates: validationResult.route.coordinates,
+      
+      price_total: total,
+      weather: simulatedWeather,
+      congestion: simulatedCongestion
+    };
+    
+    sessionStorage.setItem("pending_booking", JSON.stringify(bookingData));
+    navigate("/user/payment");
+  };
+
+
   const toggleOpt = (id: SmartOptId) =>
     setSmartOpts((p) => ({ ...p, [id]: !p[id] }));
 
@@ -406,12 +463,12 @@ const BookParcel = () => {
                         </div>
                         <div className="grid sm:grid-cols-2 gap-4">
                           <Field label="Full Name">
-                            <Input defaultValue="Rohan Sharma" className={inputCls} />
+                            <Input value={senderName} onChange={(e) => setSenderName(e.target.value)} className={inputCls} />
                           </Field>
                           <Field label="Phone">
                             <div className="relative">
                               <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/60" />
-                              <Input defaultValue="+91 98765 43210" className={`pl-10 ${inputCls}`} />
+                              <Input value={senderPhone} onChange={(e) => setSenderPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
                             </div>
                           </Field>
                         </div>
@@ -443,12 +500,12 @@ const BookParcel = () => {
                         </div>
                         <div className="grid sm:grid-cols-2 gap-4">
                           <Field label="Full Name">
-                            <Input defaultValue="Priya Mehta" className={inputCls} />
+                            <Input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className={inputCls} />
                           </Field>
                           <Field label="Phone">
                             <div className="relative">
                               <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400/60" />
-                              <Input defaultValue="+91 91234 56789" className={`pl-10 ${inputCls}`} />
+                              <Input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
                             </div>
                           </Field>
                         </div>
@@ -1114,7 +1171,7 @@ const BookParcel = () => {
                   <NavRow>
                     <BackBtn onClick={() => setStep(4)} />
                     <Button
-                      onClick={() => navigate("/user/payment")}
+                      onClick={handleProceedToPayment}
                       disabled={!agreed}
                       className={primaryBtn}
                     >

@@ -16,6 +16,7 @@ interface LeafletMapProps {
   zoom?: number;
   className?: string;
   showRoute?: boolean;
+  routeCoordinates?: number[][];
 }
 
 const statusColors: Record<string, string> = {
@@ -25,7 +26,7 @@ const statusColors: Record<string, string> = {
   current: "#f97316",
 };
 
-const LeafletMap = ({ markers, center = [22.5, 78.5], zoom = 5, className = "", showRoute = false }: LeafletMapProps) => {
+const LeafletMap = ({ markers, center = [22.5, 78.5], zoom = 5, className = "", showRoute = false, routeCoordinates = [] }: LeafletMapProps) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
@@ -65,7 +66,17 @@ const LeafletMap = ({ markers, center = [22.5, 78.5], zoom = 5, className = "", 
       }
     });
 
-    if (showRoute && markers.length > 1) {
+    // If detailed routeCoordinates are passed, draw the path
+    if (showRoute && routeCoordinates.length > 1) {
+      const latlngs = routeCoordinates.map(([lat, lng]) => [lat, lng] as [number, number]);
+      L.polyline(latlngs, {
+        color: "#f97316",
+        weight: 3,
+        opacity: 0.6,
+        dashArray: "10, 10",
+        className: "ai-route-line"
+      }).addTo(map);
+    } else if (showRoute && markers.length > 1) {
       const latlngs = markers.map(m => [m.lat, m.lng] as [number, number]);
       L.polyline(latlngs, {
         color: "#f97316",
@@ -110,7 +121,19 @@ const LeafletMap = ({ markers, center = [22.5, 78.5], zoom = 5, className = "", 
         )
         .addTo(map);
     });
-  }, [markers]);
+
+    // Auto fit bounds if markers or route coordinates exist
+    const points: [number, number][] = [];
+    markers.forEach((m) => points.push([m.lat, m.lng]));
+    if (routeCoordinates && routeCoordinates.length > 0) {
+      routeCoordinates.forEach(([lat, lng]) => points.push([lat, lng]));
+    }
+    if (points.length > 0) {
+      const bounds = L.latLngBounds(points);
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    }
+  }, [markers, routeCoordinates]);
+
 
   return (
     <div className={`relative overflow-hidden rounded-lg ${className}`}>

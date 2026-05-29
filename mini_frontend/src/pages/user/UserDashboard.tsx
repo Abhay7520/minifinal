@@ -1,18 +1,19 @@
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, MessageSquare, Zap, Calendar, BarChart3, X, Send } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, BarChart, Bar } from "recharts";
-import { useState } from "react";
+import { getAllParcels } from "@/services/parcelService";
 
-
-const stats = [
+const initialStats = [
   { label: "Active Parcels", value: "3", icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: "+1 this week", trendUp: true },
   { label: "Delivered", value: "12", icon: MapPin, color: "text-emerald-400", bg: "from-emerald-500/20 to-emerald-500/5", border: "border-emerald-500/20", trend: "All time", trendUp: true },
   { label: "Avg Delivery", value: "2.4 days", icon: Clock, color: "text-indigo-400", bg: "from-indigo-500/20 to-indigo-500/5", border: "border-indigo-500/20", trend: "↓ 0.3 days", trendUp: true },
   { label: "On Time Rate", value: "94%", icon: TrendingUp, color: "text-violet-400", bg: "from-violet-500/20 to-violet-500/5", border: "border-violet-500/20", trend: "↑ 2%", trendUp: true },
 ];
+
 
 const recentOrders = [
   { id: "AP-20260001", dest: "Mumbai, MH", status: "In Transit", eta: "Feb 27", risk: "Low", progress: 65 },
@@ -79,6 +80,66 @@ const UserDashboard = () => {
   ]);
   const unreadCount = notifications.filter(n => n.unread).length;
 
+  const [parcels, setParcels] = useState<any[]>([]);
+  const [stats, setStats] = useState(initialStats);
+  const [recent, setRecent] = useState<any[]>([]);
+  const [activeParcelForTimeline, setActiveParcelForTimeline] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const getStageIndex = (status: string) => {
+    const stages = ["Parcel Booked", "Picked Up", "At Source Post Office", "In Transit", "At Sorting Hub", "Out for Delivery", "Delivered"];
+    const idx = stages.indexOf(status);
+    return idx === -1 ? 0 : idx;
+  };
+
+  useEffect(() => {
+    getAllParcels()
+      .then((res) => {
+        setParcels(res);
+        if (res.length > 0) {
+          const activeCount = res.filter(p => p.status !== "Delivered").length;
+          const deliveredCount = res.filter(p => p.status === "Delivered").length;
+          
+          const newStats = [
+            { label: "Active Parcels", value: String(activeCount), icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: `+${activeCount} active`, trendUp: true },
+            { label: "Delivered", value: String(deliveredCount), icon: MapPin, color: "text-emerald-400", bg: "from-emerald-500/20 to-emerald-500/5", border: "border-emerald-500/20", trend: "All time", trendUp: true },
+            { label: "Avg Delivery", value: "2.1 days", icon: Clock, color: "text-indigo-400", bg: "from-indigo-500/20 to-indigo-500/5", border: "border-indigo-500/20", trend: "↓ 0.3 days", trendUp: true },
+            { label: "On Time Rate", value: "96%", icon: TrendingUp, color: "text-violet-400", bg: "from-violet-500/20 to-violet-500/5", border: "border-violet-500/20", trend: "↑ 2%", trendUp: true },
+          ];
+          setStats(newStats);
+          
+          const mappedRecent = res.slice(0, 3).map(p => {
+            const currentStageIdx = getStageIndex(p.status);
+            const progresses = [5, 20, 35, 55, 75, 90, 100];
+            return {
+              id: p.tracking_id,
+              dest: p.destination_address.split(',')[0],
+              status: p.status,
+              eta: p.transit_days,
+              risk: "Low",
+              progress: progresses[currentStageIdx] || 5
+            };
+          });
+          setRecent(mappedRecent);
+          
+          const firstActive = res.find(p => p.status !== "Delivered") || res[0];
+          setActiveParcelForTimeline(firstActive);
+        } else {
+          setRecent(recentOrders);
+          setActiveParcelForTimeline(recentOrders[0]);
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching parcels:", err);
+        setRecent(recentOrders);
+        setActiveParcelForTimeline(recentOrders[0]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+
   const handleSendChat = () => {
     if (!chatInput.trim()) return;
     setChatMessages(prev => [...prev, { role: "user", text: chatInput }]);
@@ -96,6 +157,8 @@ const UserDashboard = () => {
     }, 1000);
   };
 
+  const currentStageIdx = activeParcelForTimeline ? getStageIndex(activeParcelForTimeline.status) : 0;
+
   return (
     
     <DashboardLayout role="user">
@@ -112,7 +175,7 @@ const UserDashboard = () => {
               <span className="text-xs font-medium uppercase tracking-wider text-orange-400/80">AI Postal Dashboard</span>
             </div>
             <h1 className="font-display text-3xl font-bold text-white">{getGreeting()}, John 👋</h1>
-            <p className="mt-1 text-white/50">You have <span className="font-semibold text-orange-400">3 active parcels</span> being tracked right now</p>
+            <p className="mt-1 text-white/50">You have <span className="font-semibold text-orange-400">{parcels.filter(p => p.status !== "Delivered").length || 3} active parcels</span> being tracked right now</p>
           </div>
           <div className="hidden lg:flex items-center gap-3">
             {/* Notification Bell */}
@@ -279,8 +342,8 @@ const UserDashboard = () => {
                 <Package className="h-4 w-4 text-orange-400" />
               </div>
               <div>
-                <h3 className="font-display text-sm font-semibold text-white">AP-20260001</h3>
-                <p className="text-xs text-white/40">Mumbai, Maharashtra</p>
+                <h3 className="font-display text-sm font-semibold text-white">{activeParcelForTimeline?.tracking_id || activeParcelForTimeline?.id || "AP-20260001"}</h3>
+                <p className="text-xs text-white/40 truncate max-w-[220px]">{activeParcelForTimeline?.destination_address || activeParcelForTimeline?.dest || "Mumbai, Maharashtra"}</p>
               </div>
             </div>
             <span className="flex items-center gap-1 text-xs text-emerald-400">
@@ -290,7 +353,13 @@ const UserDashboard = () => {
 
           {/* Timeline */}
           <div className="mb-4 flex items-center justify-between px-2">
-            {trackingTimeline.map((step, i) => (
+            {[
+              { label: "Booked", done: currentStageIdx >= 0 },
+              { label: "Picked Up", done: currentStageIdx >= 1 },
+              { label: "In Transit", done: currentStageIdx >= 3 },
+              { label: "Out for Delivery", done: currentStageIdx >= 5 },
+              { label: "Delivered", done: currentStageIdx >= 6 },
+            ].map((step, i, arr) => (
               <div key={step.label} className="flex flex-col items-center gap-1.5">
                 <div className="flex items-center">
                   <div className={`flex h-6 w-6 items-center justify-center rounded-full ${
@@ -298,9 +367,9 @@ const UserDashboard = () => {
                   }`}>
                     {step.done && <span className="text-[10px] text-white">✓</span>}
                   </div>
-                  {i < trackingTimeline.length - 1 && (
+                  {i < arr.length - 1 && (
                     <div className={`h-0.5 w-8 sm:w-12 lg:w-16 ${
-                      step.done && trackingTimeline[i + 1]?.done ? "bg-orange-500" :
+                      step.done && arr[i + 1]?.done ? "bg-orange-500" :
                       step.done ? "bg-gradient-to-r from-orange-500 to-white/10" : "bg-white/[0.08]"
                     }`} />
                   )}
@@ -313,9 +382,11 @@ const UserDashboard = () => {
           <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3">
             <div>
               <p className="text-xs text-white/40">Estimated delivery</p>
-              <p className="font-display text-sm font-semibold text-white">Feb 27, 2026 — 2:00 PM</p>
+              <p className="font-display text-sm font-semibold text-white">
+                {activeParcelForTimeline?.estimated_delivery || activeParcelForTimeline?.eta || "Feb 27, 2026"}
+              </p>
             </div>
-            <Link to="/user/track">
+            <Link to={`/user/track?id=${activeParcelForTimeline?.tracking_id || activeParcelForTimeline?.id || "AP-20260001"}`}>
               <Button size="sm" variant="ghost" className="text-orange-400 hover:text-orange-300 hover:bg-orange-500/10">
                 Track <ChevronRight className="ml-1 h-3.5 w-3.5" />
               </Button>
@@ -363,7 +434,7 @@ const UserDashboard = () => {
             </Link>
           </div>
           <div className="divide-y divide-white/[0.06]">
-            {recentOrders.map((o) => (
+            {recent.map((o) => (
               <div key={o.id} className="flex items-center gap-4 p-5 hover:bg-white/[0.04] transition-colors">
                 <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                   o.status === "Delivered" ? "bg-emerald-500/10" :
@@ -399,7 +470,7 @@ const UserDashboard = () => {
                   {o.risk !== "None" && <Shield className="mb-0.5 mr-1 inline h-3 w-3" />}
                   {o.risk}
                 </span>
-                <Link to="/user/track">
+                <Link to={`/user/track?id=${o.id}`}>
                   <ArrowUpRight className="h-4 w-4 text-white/20 hover:text-orange-400 transition-colors" />
                 </Link>
               </div>

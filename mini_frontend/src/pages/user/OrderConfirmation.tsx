@@ -1,12 +1,31 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, MapPin, Copy, Clock, Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { getTrackingInfo } from "@/services/trackingService";
 
 const OrderConfirmation = () => {
-  const trackingId = "AP-20260004";
+  const trackingId = sessionStorage.getItem("confirmed_tracking_id") || "AIP202601";
+  const [eta, setEta] = useState("3 days");
+  const [confidence, setConfidence] = useState(85);
+  const [riskLevel, setRiskLevel] = useState("Low");
+
+  useEffect(() => {
+    if (!trackingId) return;
+    getTrackingInfo(trackingId)
+      .then((res) => {
+        setEta(res.estimated_delivery);
+        setConfidence(Math.round(res.risk_info.risk_score * 100));
+        // Simple mapping to render high/medium/low
+        setRiskLevel(res.risk_info.risk_level);
+      })
+      .catch((err) => {
+        console.error("Error fetching confirmation ETA details:", err);
+      });
+  }, [trackingId]);
 
   return (
     <DashboardLayout role="user">
@@ -37,17 +56,19 @@ const OrderConfirmation = () => {
               <div className="rounded-lg bg-white/5 p-3 text-center">
                 <Clock className="mx-auto mb-1 h-5 w-5 text-blue-400" />
                 <span className="text-xs text-white/40">Predicted ETA</span>
-                <p className="mt-1 font-display text-sm font-semibold text-white">Feb 28, 2026</p>
+                <p className="mt-1 font-display text-sm font-semibold text-white">{eta}</p>
               </div>
               <div className="rounded-lg bg-white/5 p-3 text-center">
                 <Shield className="mx-auto mb-1 h-5 w-5 text-emerald-400" />
                 <span className="text-xs text-white/40">Confidence</span>
-                <p className="mt-1 font-display text-sm font-semibold text-white">92%</p>
+                <p className="mt-1 font-display text-sm font-semibold text-white">{confidence}%</p>
               </div>
               <div className="rounded-lg bg-white/5 p-3 text-center">
                 <MapPin className="mx-auto mb-1 h-5 w-5 text-orange-400" />
                 <span className="text-xs text-white/40">Risk Level</span>
-                <p className="mt-1 font-display text-sm font-semibold text-emerald-400">Low</p>
+                <p className={`mt-1 font-display text-sm font-semibold ${
+                  riskLevel === "High" ? "text-red-400" : riskLevel === "Medium" ? "text-amber-400" : "text-emerald-400"
+                }`}>{riskLevel}</p>
               </div>
             </div>
           </div>

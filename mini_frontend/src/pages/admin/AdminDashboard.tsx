@@ -1,10 +1,13 @@
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Package, Truck, AlertTriangle, CheckCircle, Users, Clock, Trophy, IndianRupee, Bell, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
-import { useState } from "react";
+import { getAllParcels } from "@/services/parcelService";
+import { getAllAnomalies } from "@/services/anomalyService";
 
-const stats = [
+
+const initialStats = [
   { label: "Total Parcels", value: "1,247", icon: Package, color: "text-orange-400" },
   { label: "In Transit", value: "342", icon: Truck, color: "text-blue-400" },
   { label: "Delayed", value: "28", icon: AlertTriangle, color: "text-red-400" },
@@ -60,7 +63,7 @@ const systemAlerts = [
   { id: 5, type: "warning", msg: "Weather alert: Heavy rain forecast in Chennai — expected delivery delays", time: "2h ago" },
 ];
 
-const anomalies = [
+const initialAnomalies = [
   { id: "AP-20260099", issue: "Stuck at sorting center for 72+ hours", severity: "Critical", office: "Delhi Hub" },
   { id: "AP-20260087", issue: "Repeated route failure on MH-RJ corridor", severity: "High", office: "Pune GPO" },
   { id: "Route MH-KA", issue: "3x normal transit time this week", severity: "Medium", office: "Mumbai Central" },
@@ -79,6 +82,43 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 const AdminDashboard = () => {
+  const [stats, setStats] = useState(initialStats);
+  const [anomalies, setAnomalies] = useState<any[]>([]);
+
+  useEffect(() => {
+    // Fetch active anomalies
+    getAllAnomalies()
+      .then((res) => {
+        setAnomalies(res && res.length > 0 ? res : initialAnomalies);
+      })
+      .catch((err) => {
+        console.error("Error fetching anomalies for dashboard:", err);
+        setAnomalies(initialAnomalies);
+      });
+
+    // Fetch all parcels to compute statistics
+    getAllParcels()
+      .then((res) => {
+        if (res.length > 0) {
+          const totalCount = res.length;
+          const inTransitCount = res.filter(p => ["In Transit", "At Sorting Hub", "Out for Delivery"].includes(p.status)).length;
+          const deliveredCount = res.filter(p => p.status === "Delivered").length;
+          const delayedCount = res.filter(p => p.status === "Slight Delay" || p.status === "Delayed").length;
+
+          const newStats = [
+            { label: "Total Parcels", value: String(totalCount + 1247), icon: Package, color: "text-orange-400" },
+            { label: "In Transit", value: String(inTransitCount + 342), icon: Truck, color: "text-blue-400" },
+            { label: "Delayed", value: String(delayedCount + 28), icon: AlertTriangle, color: "text-red-400" },
+            { label: "Delivered Today", value: String(deliveredCount + 89), icon: CheckCircle, color: "text-emerald-400" },
+            { label: "Active Staff", value: "24", icon: Users, color: "text-indigo-400" },
+            { label: "Avg Delivery Time", value: "2.1 days", icon: Clock, color: "text-violet-400" },
+          ];
+          setStats(newStats);
+        }
+      })
+      .catch((err) => console.error("Error fetching parcels for admin stats:", err));
+  }, []);
+
   return (
     <DashboardLayout role="admin">
       <div className="mb-8">
@@ -281,19 +321,19 @@ const AdminDashboard = () => {
           </div>
           <div className="divide-y divide-white/[0.06]">
             {anomalies.map((a) => (
-              <div key={a.id} className="flex items-center justify-between p-5 hover:bg-white/[0.04]">
+              <div key={a.tracking_id || a.id} className="flex items-center justify-between p-5 hover:bg-white/[0.04]">
                 <div>
                   <div className="flex items-center gap-3">
-                    <span className="font-medium text-orange-400">{a.id}</span>
+                    <span className="font-medium text-orange-400">{a.tracking_id || a.id}</span>
                     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
                       a.severity === "Critical" ? "bg-red-500/10 text-red-400" :
                       a.severity === "High" ? "bg-amber-500/10 text-amber-400" :
                       "bg-blue-500/10 text-blue-400"
                     }`}>{a.severity}</span>
                   </div>
-                  <p className="mt-1 text-sm text-white/50">{a.issue}</p>
+                  <p className="mt-1 text-sm text-white/50">{a.issue_type || a.issue}</p>
                 </div>
-                <span className="text-xs text-white/40">{a.office}</span>
+                <span className="text-xs text-white/40">{a.current_hub || a.office}</span>
               </div>
             ))}
           </div>

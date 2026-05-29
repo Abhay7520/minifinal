@@ -19,7 +19,13 @@ class Settings(BaseSettings):
     max_autocomplete_results: int = 8
     postoffice_search_radius_km: float = 50.0
     avg_road_speed_kmh: float = 55.0
-    osrm_base_url: str = "https://router.project-osrm.org"
+    mongodb_url: str = "mongodb://localhost:27017"
+    mongodb_db_name: str = "aipostal"
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 
 settings = Settings()
+
