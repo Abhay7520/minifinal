@@ -406,11 +406,19 @@ const DeliveryAgentDashboard = () => {
       const priorities = await getPriorityRoutes(agentCoords[0], agentCoords[1]);
       setPriorityStops(priorities);
 
-      // Fetch weather hazard alerts for first active stop
+      // Fetch weather hazard alerts for first active stop.
+      // ETA endpoint can legitimately return 404 (parcel not found), which should not
+      // break the whole dashboard sync loop.
       const firstActive = deliveries.find(s => s.status === "current" || s.status === "upcoming");
       if (firstActive) {
-        const weather = await getStopEta(firstActive.id, agentCoords[0], agentCoords[1]);
-        setWeatherAlert(weather);
+        try {
+          const weather = await getStopEta(firstActive.id, agentCoords[0], agentCoords[1]);
+          setWeatherAlert(weather);
+        } catch (e) {
+          // Keep UI usable; just clear the banner when ETA can't be fetched.
+          console.warn("Failed to fetch stop ETA:", e);
+          setWeatherAlert(null);
+        }
       } else {
         setWeatherAlert(null);
       }
