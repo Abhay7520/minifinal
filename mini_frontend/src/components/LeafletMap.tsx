@@ -7,7 +7,7 @@ interface MapMarker {
   lat: number;
   lng: number;
   label: string;
-  status: "moving" | "delayed" | "delivered" | "current";
+  status: "moving" | "delayed" | "delivered" | "current" | "agent";
 }
 
 interface LeafletMapProps {
@@ -24,6 +24,7 @@ const statusColors: Record<string, string> = {
   delayed: "#ef4444",
   delivered: "#22c55e",
   current: "#f97316",
+  agent: "#a855f7", // Violet pulse color for the live agent location
 };
 
 const LeafletMap = ({ markers, center = [22.5, 78.5], zoom = 5, className = "", showRoute = false, routeCoordinates = [] }: LeafletMapProps) => {

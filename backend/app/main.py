@@ -9,6 +9,7 @@ from app.routes.eta import router as eta_router
 from app.routes.risk import router as risk_router
 from app.routes.tracking import router as tracking_router
 from app.routes.anomaly import router as anomaly_router
+from app.routes.staff import router as staff_router
 from app.services.data_loader import data_store
 from app.services.eta_service import ensure_model_trained
 from app.services.risk_service import ensure_risk_model_trained
@@ -46,6 +47,7 @@ app.include_router(eta_router)
 app.include_router(risk_router)
 app.include_router(tracking_router)
 app.include_router(anomaly_router)
+app.include_router(staff_router)
 
 
 @app.get("/health")

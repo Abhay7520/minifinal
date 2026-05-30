@@ -57,7 +57,9 @@ def create_parcel(parcel_data: Dict[str, Any]) -> str:
         
         "price_total": float(parcel_data.get("price_total", 0.0)),
         "created_at": created_at,
-        "manual_stage_override": None
+        "manual_stage_override": None,
+        "delivery_otp": str(random.randint(1000, 9999)),
+        "assigned_agent": "Rohan Sharma"
     }
     
     parcels_col.insert_one(parcel_doc)

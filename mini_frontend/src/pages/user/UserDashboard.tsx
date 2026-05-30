@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, MessageSquare, Zap, Calendar, BarChart3, X, Send } from "lucide-react";
+import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, Zap, Calendar, BarChart3, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,7 +13,6 @@ const initialStats = [
   { label: "Avg Delivery", value: "2.4 days", icon: Clock, color: "text-indigo-400", bg: "from-indigo-500/20 to-indigo-500/5", border: "border-indigo-500/20", trend: "↓ 0.3 days", trendUp: true },
   { label: "On Time Rate", value: "94%", icon: TrendingUp, color: "text-violet-400", bg: "from-violet-500/20 to-violet-500/5", border: "border-violet-500/20", trend: "↑ 2%", trendUp: true },
 ];
-
 
 const recentOrders = [
   { id: "AP-20260001", dest: "Mumbai, MH", status: "In Transit", eta: "Feb 27", risk: "Low", progress: 65 },
@@ -29,14 +28,6 @@ const activityData = [
 const monthlyData = [
   { month: "Jan", sent: 8, received: 5 }, { month: "Feb", sent: 12, received: 7 },
   { month: "Mar", sent: 6, received: 9 }, { month: "Apr", sent: 15, received: 4 },
-];
-
-const trackingTimeline = [
-  { label: "Order Placed", done: true },
-  { label: "Picked Up", done: true },
-  { label: "In Transit", done: true },
-  { label: "Out for Delivery", done: false },
-  { label: "Delivered", done: false },
 ];
 
 const notifications = [
@@ -73,11 +64,6 @@ const getGreeting = () => {
 
 const UserDashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showAiChat, setShowAiChat] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState([
-    { role: "ai", text: "Hi John! 👋 I'm your AI postal assistant. Ask me anything about your parcels, shipping rates, or delivery estimates." }
-  ]);
   const unreadCount = notifications.filter(n => n.unread).length;
 
   const [parcels, setParcels] = useState<any[]>([]);
@@ -99,7 +85,7 @@ const UserDashboard = () => {
         if (res.length > 0) {
           const activeCount = res.filter(p => p.status !== "Delivered").length;
           const deliveredCount = res.filter(p => p.status === "Delivered").length;
-          
+
           const newStats = [
             { label: "Active Parcels", value: String(activeCount), icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: `+${activeCount} active`, trendUp: true },
             { label: "Delivered", value: String(deliveredCount), icon: MapPin, color: "text-emerald-400", bg: "from-emerald-500/20 to-emerald-500/5", border: "border-emerald-500/20", trend: "All time", trendUp: true },
@@ -107,7 +93,7 @@ const UserDashboard = () => {
             { label: "On Time Rate", value: "96%", icon: TrendingUp, color: "text-violet-400", bg: "from-violet-500/20 to-violet-500/5", border: "border-violet-500/20", trend: "↑ 2%", trendUp: true },
           ];
           setStats(newStats);
-          
+
           const mappedRecent = res.slice(0, 3).map(p => {
             const currentStageIdx = getStageIndex(p.status);
             const progresses = [5, 20, 35, 55, 75, 90, 100];
@@ -121,7 +107,7 @@ const UserDashboard = () => {
             };
           });
           setRecent(mappedRecent);
-          
+
           const firstActive = res.find(p => p.status !== "Delivered") || res[0];
           setActiveParcelForTimeline(firstActive);
         } else {
@@ -139,28 +125,9 @@ const UserDashboard = () => {
       });
   }, []);
 
-
-  const handleSendChat = () => {
-    if (!chatInput.trim()) return;
-    setChatMessages(prev => [...prev, { role: "user", text: chatInput }]);
-    const input = chatInput;
-    setChatInput("");
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, {
-        role: "ai",
-        text: input.toLowerCase().includes("track") 
-          ? "AP-20260001 is currently in transit to Mumbai. Expected delivery: Feb 27 at 2:00 PM. The parcel cleared the Pune sorting hub at 8:30 AM today."
-          : input.toLowerCase().includes("cost") || input.toLowerCase().includes("rate")
-          ? "Standard shipping from Pune to Delhi costs ₹185 for up to 5kg. Express is ₹320 with next-day delivery. Want me to book one?"
-          : "I'd be happy to help! You can ask me about tracking, shipping rates, delivery estimates, or booking a new parcel."
-      }]);
-    }, 1000);
-  };
-
   const currentStageIdx = activeParcelForTimeline ? getStageIndex(activeParcelForTimeline.status) : 0;
 
   return (
-    
     <DashboardLayout role="user">
       {/* Welcome Banner */}
       <motion.div
@@ -478,78 +445,7 @@ const UserDashboard = () => {
           </div>
         </motion.div>
       </div>
-
-      {/* AI Chat Widget (FAB + Panel) */}
-      <AnimatePresence>
-        {showAiChat && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="fixed bottom-24 right-8 z-50 flex h-[420px] w-[360px] flex-col rounded-2xl border border-white/[0.1] bg-[#0a0a14]/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-r from-orange-500 to-violet-600">
-                  <Sparkles className="h-3.5 w-3.5 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">AI Assistant</p>
-                  <p className="text-[10px] text-emerald-400">Online</p>
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" className="text-white/30 hover:text-white" onClick={() => setShowAiChat(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                    msg.role === "user"
-                      ? "bg-gradient-to-r from-orange-500 to-violet-600 text-white"
-                      : "border border-white/[0.08] bg-white/[0.06] text-white/80"
-                  }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Input */}
-            <div className="border-t border-white/[0.08] p-3">
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                <input
-                  type="text"
-                  placeholder="Ask about your parcels..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                  className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 outline-none"
-                />
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-orange-400 hover:text-orange-300" onClick={handleSendChat}>
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* AI Chat FAB */}
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setShowAiChat(!showAiChat)}
-        className="fixed bottom-8 right-8 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-violet-600 shadow-lg shadow-orange-500/30 transition-shadow hover:shadow-orange-500/50"
-      >
-        {showAiChat ? <X className="h-5 w-5 text-white" /> : <MessageSquare className="h-5 w-5 text-white" />}
-      </motion.button>
     </DashboardLayout>
-    
   );
 };
 

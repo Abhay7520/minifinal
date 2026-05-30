@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     avg_road_speed_kmh: float = 55.0
     mongodb_url: str = "mongodb://localhost:27017"
     mongodb_db_name: str = "aipostal"
+    osrm_base_url: str = "https://router.project-osrm.org"
     
     class Config:
         env_file = ".env"
