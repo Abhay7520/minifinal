@@ -1,6 +1,24 @@
 // Explicitly map your target instances
-export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; 
-export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    
+export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // All Staff/Logistics logic
+export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";   // Auth, AI, Address datasets
+
+xport function getApiUrl(path: string): string {
+  // 1. Python/FastAPI Backend routes:
+  if (
+    path.startsWith('/auth') || 
+    path.startsWith('/address') || 
+    path.startsWith('/search-address') || 
+    path.startsWith('/validate-address') || 
+    path.startsWith('/anomaly') || 
+    path.startsWith('/eta') || 
+    path.startsWith('/risk')
+  ) {
+    return `${AI_BACKEND_URL}${path}`;
+  }
+
+  // 2. Everything else (Staff, Locations, Parcels, Incidents) goes to Node.js:
+  return `${NODE_BACKEND_URL}${path}`;
+}
 
 export class ApiError extends Error {
   status: number;
