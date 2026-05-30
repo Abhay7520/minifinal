@@ -1,13 +1,15 @@
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, MessageSquare, Zap, Calendar, BarChart3, X, Send } from "lucide-react";
+import PageBackground from "@/components/PageBackground";
+import bgDashboard from "@/assets/bg-dashboard.jpg";
+import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, Zap, Calendar, BarChart3, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, BarChart, Bar } from "recharts";
-import { useState } from "react";
+import { getAllParcels } from "@/services/parcelService";
 
-
-const stats = [
+const initialStats = [
   { label: "Active Parcels", value: "3", icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: "+1 this week", trendUp: true },
   { label: "Delivered", value: "12", icon: MapPin, color: "text-emerald-400", bg: "from-emerald-500/20 to-emerald-500/5", border: "border-emerald-500/20", trend: "All time", trendUp: true },
   { label: "Avg Delivery", value: "2.4 days", icon: Clock, color: "text-indigo-400", bg: "from-indigo-500/20 to-indigo-500/5", border: "border-indigo-500/20", trend: "↓ 0.3 days", trendUp: true },
@@ -28,14 +30,6 @@ const activityData = [
 const monthlyData = [
   { month: "Jan", sent: 8, received: 5 }, { month: "Feb", sent: 12, received: 7 },
   { month: "Mar", sent: 6, received: 9 }, { month: "Apr", sent: 15, received: 4 },
-];
-
-const trackingTimeline = [
-  { label: "Order Placed", done: true },
-  { label: "Picked Up", done: true },
-  { label: "In Transit", done: true },
-  { label: "Out for Delivery", done: false },
-  { label: "Delivered", done: false },
 ];
 
 const notifications = [
@@ -70,35 +64,93 @@ const getGreeting = () => {
   return "Good evening";
 };
 
+// Helper: capitalise each word of a name
+const formatName = (raw: string) =>
+  raw
+    .trim()
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
 const UserDashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showAiChat, setShowAiChat] = useState(false);
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState([
-    { role: "ai", text: "Hi John! 👋 I'm your AI postal assistant. Ask me anything about your parcels, shipping rates, or delivery estimates." }
-  ]);
   const unreadCount = notifications.filter(n => n.unread).length;
 
-  const handleSendChat = () => {
-    if (!chatInput.trim()) return;
-    setChatMessages(prev => [...prev, { role: "user", text: chatInput }]);
-    const input = chatInput;
-    setChatInput("");
-    setTimeout(() => {
-      setChatMessages(prev => [...prev, {
-        role: "ai",
-        text: input.toLowerCase().includes("track") 
-          ? "AP-20260001 is currently in transit to Mumbai. Expected delivery: Feb 27 at 2:00 PM. The parcel cleared the Pune sorting hub at 8:30 AM today."
-          : input.toLowerCase().includes("cost") || input.toLowerCase().includes("rate")
-          ? "Standard shipping from Pune to Delhi costs ₹185 for up to 5kg. Express is ₹320 with next-day delivery. Want me to book one?"
-          : "I'd be happy to help! You can ask me about tracking, shipping rates, delivery estimates, or booking a new parcel."
-      }]);
-    }, 1000);
+  // ── Read user name from localStorage (set during login/register) ──
+  const [userName, setUserName] = useState("there");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("userName");
+    if (stored) {
+      setUserName(formatName(stored));
+    }
+  }, []);
+  // ─────────────────────────────────────────────────────────────────
+
+  const [parcels, setParcels] = useState<any[]>([]);
+  const [stats, setStats] = useState(initialStats);
+  const [recent, setRecent] = useState<any[]>([]);
+  const [activeParcelForTimeline, setActiveParcelForTimeline] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const getStageIndex = (status: string) => {
+    const stages = ["Parcel Booked", "Picked Up", "At Source Post Office", "In Transit", "At Sorting Hub", "Out for Delivery", "Delivered"];
+    const idx = stages.indexOf(status);
+    return idx === -1 ? 0 : idx;
   };
 
+  useEffect(() => {
+    getAllParcels()
+      .then((res) => {
+        setParcels(res);
+        if (res.length > 0) {
+          const activeCount = res.filter(p => p.status !== "Delivered").length;
+          const deliveredCount = res.filter(p => p.status === "Delivered").length;
+
+          const newStats = [
+            { label: "Active Parcels", value: String(activeCount), icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: `+${activeCount} active`, trendUp: true },
+            { label: "Delivered", value: String(deliveredCount), icon: MapPin, color: "text-emerald-400", bg: "from-emerald-500/20 to-emerald-500/5", border: "border-emerald-500/20", trend: "All time", trendUp: true },
+            { label: "Avg Delivery", value: "2.1 days", icon: Clock, color: "text-indigo-400", bg: "from-indigo-500/20 to-indigo-500/5", border: "border-indigo-500/20", trend: "↓ 0.3 days", trendUp: true },
+            { label: "On Time Rate", value: "96%", icon: TrendingUp, color: "text-violet-400", bg: "from-violet-500/20 to-violet-500/5", border: "border-violet-500/20", trend: "↑ 2%", trendUp: true },
+          ];
+          setStats(newStats);
+
+          const mappedRecent = res.slice(0, 3).map(p => {
+            const currentStageIdx = getStageIndex(p.status);
+            const progresses = [5, 20, 35, 55, 75, 90, 100];
+            return {
+              id: p.tracking_id,
+              dest: p.destination_address.split(',')[0],
+              status: p.status,
+              eta: p.transit_days,
+              risk: "Low",
+              progress: progresses[currentStageIdx] || 5
+            };
+          });
+          setRecent(mappedRecent);
+
+          const firstActive = res.find(p => p.status !== "Delivered") || res[0];
+          setActiveParcelForTimeline(firstActive);
+        } else {
+          setRecent(recentOrders);
+          setActiveParcelForTimeline(recentOrders[0]);
+        }
+      })
+      .catch((err) => {
+        console.error("Error fetching parcels:", err);
+        setRecent(recentOrders);
+        setActiveParcelForTimeline(recentOrders[0]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  const currentStageIdx = activeParcelForTimeline ? getStageIndex(activeParcelForTimeline.status) : 0;
+
   return (
-    
     <DashboardLayout role="user">
+      <PageBackground image={bgDashboard} variant="drift" />
       {/* Welcome Banner */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -111,8 +163,9 @@ const UserDashboard = () => {
               <Sparkles className="h-4 w-4 text-orange-400" />
               <span className="text-xs font-medium uppercase tracking-wider text-orange-400/80">AI Postal Dashboard</span>
             </div>
-            <h1 className="font-display text-3xl font-bold text-white">{getGreeting()}, John 👋</h1>
-            <p className="mt-1 text-white/50">You have <span className="font-semibold text-orange-400">3 active parcels</span> being tracked right now</p>
+            {/* ── Dynamic greeting uses userName from localStorage ── */}
+            <h1 className="font-display text-3xl font-bold text-white">{getGreeting()}, {userName} 👋</h1>
+            <p className="mt-1 text-white/50">You have <span className="font-semibold text-orange-400">{parcels.filter(p => p.status !== "Delivered").length || 3} active parcels</span> being tracked right now</p>
           </div>
           <div className="hidden lg:flex items-center gap-3">
             {/* Notification Bell */}
@@ -279,8 +332,8 @@ const UserDashboard = () => {
                 <Package className="h-4 w-4 text-orange-400" />
               </div>
               <div>
-                <h3 className="font-display text-sm font-semibold text-white">AP-20260001</h3>
-                <p className="text-xs text-white/40">Mumbai, Maharashtra</p>
+                <h3 className="font-display text-sm font-semibold text-white">{activeParcelForTimeline?.tracking_id || activeParcelForTimeline?.id || "AP-20260001"}</h3>
+                <p className="text-xs text-white/40 truncate max-w-[220px]">{activeParcelForTimeline?.destination_address || activeParcelForTimeline?.dest || "Mumbai, Maharashtra"}</p>
               </div>
             </div>
             <span className="flex items-center gap-1 text-xs text-emerald-400">
@@ -290,7 +343,13 @@ const UserDashboard = () => {
 
           {/* Timeline */}
           <div className="mb-4 flex items-center justify-between px-2">
-            {trackingTimeline.map((step, i) => (
+            {[
+              { label: "Booked", done: currentStageIdx >= 0 },
+              { label: "Picked Up", done: currentStageIdx >= 1 },
+              { label: "In Transit", done: currentStageIdx >= 3 },
+              { label: "Out for Delivery", done: currentStageIdx >= 5 },
+              { label: "Delivered", done: currentStageIdx >= 6 },
+            ].map((step, i, arr) => (
               <div key={step.label} className="flex flex-col items-center gap-1.5">
                 <div className="flex items-center">
                   <div className={`flex h-6 w-6 items-center justify-center rounded-full ${
@@ -298,9 +357,9 @@ const UserDashboard = () => {
                   }`}>
                     {step.done && <span className="text-[10px] text-white">✓</span>}
                   </div>
-                  {i < trackingTimeline.length - 1 && (
+                  {i < arr.length - 1 && (
                     <div className={`h-0.5 w-8 sm:w-12 lg:w-16 ${
-                      step.done && trackingTimeline[i + 1]?.done ? "bg-orange-500" :
+                      step.done && arr[i + 1]?.done ? "bg-orange-500" :
                       step.done ? "bg-gradient-to-r from-orange-500 to-white/10" : "bg-white/[0.08]"
                     }`} />
                   )}
@@ -313,9 +372,11 @@ const UserDashboard = () => {
           <div className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3">
             <div>
               <p className="text-xs text-white/40">Estimated delivery</p>
-              <p className="font-display text-sm font-semibold text-white">Feb 27, 2026 — 2:00 PM</p>
+              <p className="font-display text-sm font-semibold text-white">
+                {activeParcelForTimeline?.estimated_delivery || activeParcelForTimeline?.eta || "Feb 27, 2026"}
+              </p>
             </div>
-            <Link to="/user/track">
+            <Link to={`/user/track?id=${activeParcelForTimeline?.tracking_id || activeParcelForTimeline?.id || "AP-20260001"}`}>
               <Button size="sm" variant="ghost" className="text-orange-400 hover:text-orange-300 hover:bg-orange-500/10">
                 Track <ChevronRight className="ml-1 h-3.5 w-3.5" />
               </Button>
@@ -363,7 +424,7 @@ const UserDashboard = () => {
             </Link>
           </div>
           <div className="divide-y divide-white/[0.06]">
-            {recentOrders.map((o) => (
+            {recent.map((o) => (
               <div key={o.id} className="flex items-center gap-4 p-5 hover:bg-white/[0.04] transition-colors">
                 <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                   o.status === "Delivered" ? "bg-emerald-500/10" :
@@ -399,7 +460,7 @@ const UserDashboard = () => {
                   {o.risk !== "None" && <Shield className="mb-0.5 mr-1 inline h-3 w-3" />}
                   {o.risk}
                 </span>
-                <Link to="/user/track">
+                <Link to={`/user/track?id=${o.id}`}>
                   <ArrowUpRight className="h-4 w-4 text-white/20 hover:text-orange-400 transition-colors" />
                 </Link>
               </div>
@@ -407,78 +468,7 @@ const UserDashboard = () => {
           </div>
         </motion.div>
       </div>
-
-      {/* AI Chat Widget (FAB + Panel) */}
-      <AnimatePresence>
-        {showAiChat && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="fixed bottom-24 right-8 z-50 flex h-[420px] w-[360px] flex-col rounded-2xl border border-white/[0.1] bg-[#0a0a14]/95 shadow-2xl shadow-black/50 backdrop-blur-xl"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-r from-orange-500 to-violet-600">
-                  <Sparkles className="h-3.5 w-3.5 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white">AI Assistant</p>
-                  <p className="text-[10px] text-emerald-400">Online</p>
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" className="text-white/30 hover:text-white" onClick={() => setShowAiChat(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                    msg.role === "user"
-                      ? "bg-gradient-to-r from-orange-500 to-violet-600 text-white"
-                      : "border border-white/[0.08] bg-white/[0.06] text-white/80"
-                  }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Input */}
-            <div className="border-t border-white/[0.08] p-3">
-              <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                <input
-                  type="text"
-                  placeholder="Ask about your parcels..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                  className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 outline-none"
-                />
-                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-orange-400 hover:text-orange-300" onClick={handleSendChat}>
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* AI Chat FAB */}
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setShowAiChat(!showAiChat)}
-        className="fixed bottom-8 right-8 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-violet-600 shadow-lg shadow-orange-500/30 transition-shadow hover:shadow-orange-500/50"
-      >
-        {showAiChat ? <X className="h-5 w-5 text-white" /> : <MessageSquare className="h-5 w-5 text-white" />}
-      </motion.button>
     </DashboardLayout>
-    
   );
 };
 

@@ -51,6 +51,8 @@ const App = () => (
           <Route path="/staff/delivery" element={<StaffDashboard />} />
           <Route path="/staff/parcels" element={<StaffDashboard />} />
           <Route path="/staff/update" element={<StaffDashboard />} />
+          <Route path="/staff/voice" element={<StaffDashboard />} />
+          <Route path="/staff/incidents" element={<StaffDashboard />} />
           {/* Admin routes */}
           <Route path="/admin/dashboard" element={<AdminDashboard />} />
           <Route path="/admin/parcels" element={<AdminDashboard />} />

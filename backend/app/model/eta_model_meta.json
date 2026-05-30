@@ -1,0 +1,18 @@
+{
+  "model_type": "ml_random_forest",
+  "dataset": "Delhivery Logistics (Kaggle)",
+  "dataset_rows": 144867,
+  "training_rows": 25583,
+  "mae_hours": 1.136,
+  "r2_score": 0.8072,
+  "features": [
+    "distance_km",
+    "route_complexity",
+    "delivery_mode",
+    "load_factor",
+    "weight_kg",
+    "parcel_type_enc",
+    "insurance_enc",
+    "time_slot_enc"
+  ]
+}

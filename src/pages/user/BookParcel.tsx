@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgBook from "@/assets/bg-book.jpg";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
+import ValidationMap from "@/components/ValidationMap";
+import type { ValidationMapMarker } from "@/components/ValidationMap";
+import { validateAddresses } from "@/services/addressService";
+import { predictEta } from "@/services/etaService";
+import type { AddressSuggestion, ValidateAddressResponse } from "@/types/address";
+import type { PredictEtaResponse } from "@/types/eta";
+import { ApiError } from "@/lib/api";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -90,8 +101,14 @@ const BookParcel = () => {
   const navigate = useNavigate();
 
   // Step 1
+  const [sourceAddress, setSourceAddress] = useState("42, MG Road, Pune, Maharashtra - 411001");
+  const [destAddress, setDestAddress] = useState("15, Connaught Place, New Delhi, Delhi - 110001");
+  const [sourceSelection, setSourceSelection] = useState<AddressSuggestion | null>(null);
+  const [destSelection, setDestSelection] = useState<AddressSuggestion | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidateAddressResponse | null>(null);
   const [aiValidated, setAiValidated] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Step 2
   const [weight, setWeight] = useState(2.5);
@@ -110,10 +127,17 @@ const BookParcel = () => {
   const [timeSlot, setTimeSlot] = useState<TimeSlot>("Anytime");
   const [dropInstructions, setDropInstructions] = useState("Leave with security if not home");
   const [insurance, setInsurance] = useState<InsuranceTier>("standard");
+  const [senderName, setSenderName] = useState("Rohan Sharma");
+  const [senderPhone, setSenderPhone] = useState("+91 98765 43210");
+  const [receiverName, setReceiverName] = useState("Priya Mehta");
+  const [receiverPhone, setReceiverPhone] = useState("+91 91234 56789");
 
-  // Step 4
+
+  // Step 4 — ETA / AI Insights
   const [aiAnalyzed, setAiAnalyzed] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [etaPrediction, setEtaPrediction] = useState<PredictEtaResponse | null>(null);
+  const [isPredictingEta, setIsPredictingEta] = useState(false);
 
   // Step 5
   const [agreed, setAgreed] = useState(false);
@@ -145,20 +169,144 @@ const BookParcel = () => {
   const gst = Math.round(subtotal * 0.18);
   const total = subtotal + gst;
 
-  const handleValidate = () => {
+  const handleValidate = async () => {
+    if (!sourceAddress.trim() || !destAddress.trim()) {
+      toast.error("Please enter both source and destination addresses");
+      return;
+    }
+
     setIsValidating(true);
-    setTimeout(() => {
-      setIsValidating(false);
+    setValidationError(null);
+    setAiValidated(false);
+    setValidationResult(null);
+
+    try {
+      const result = await validateAddresses(
+        {
+          address: sourceAddress,
+          lat: sourceSelection?.lat ?? null,
+          lng: sourceSelection?.lng ?? null,
+        },
+        {
+          address: destAddress,
+          lat: destSelection?.lat ?? null,
+          lng: destSelection?.lng ?? null,
+        }
+      );
+      setValidationResult(result);
       setAiValidated(true);
-    }, 1400);
+      toast.success("Addresses validated · Route mapped");
+      void runEtaPrediction(result);
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? typeof err.detail === "object" && err.detail && "message" in (err.detail as object)
+            ? String((err.detail as { message: string }).message)
+            : err.message
+          : "Validation failed. Check addresses and try again.";
+      setValidationError(message);
+      toast.error(message);
+    } finally {
+      setIsValidating(false);
+    }
   };
 
-  const handleAnalyze = () => {
+  const mapMarkers = useMemo((): ValidationMapMarker[] => {
+    if (!validationResult) return [];
+    const { source, destination, nearest_source_postoffice, nearest_destination_postoffice } =
+      validationResult;
+    return [
+      {
+        id: "Source",
+        lat: source.lat,
+        lng: source.lng,
+        label: source.locality || source.matched_label,
+        sublabel: `${source.city}, ${source.state}`,
+        type: "source",
+      },
+      {
+        id: "Destination",
+        lat: destination.lat,
+        lng: destination.lng,
+        label: destination.locality || destination.matched_label,
+        sublabel: `${destination.city}, ${destination.state}`,
+        type: "destination",
+      },
+      {
+        id: "Origin PO",
+        lat: nearest_source_postoffice.lat,
+        lng: nearest_source_postoffice.lng,
+        label: nearest_source_postoffice.name,
+        sublabel: `${nearest_source_postoffice.distance_km} km away`,
+        type: "source-po",
+      },
+      {
+        id: "Dest PO",
+        lat: nearest_destination_postoffice.lat,
+        lng: nearest_destination_postoffice.lng,
+        label: nearest_destination_postoffice.name,
+        sublabel: `${nearest_destination_postoffice.distance_km} km away`,
+        type: "destination-po",
+      },
+    ];
+  }, [validationResult]);
+
+  const resetValidation = () => {
+    setAiValidated(false);
+    setValidationResult(null);
+    setValidationError(null);
+    setEtaPrediction(null);
+    setAiAnalyzed(false);
+  };
+
+  const runEtaPrediction = async (validation: ValidateAddressResponse) => {
+    setIsPredictingEta(true);
+    try {
+      const result = await predictEta({
+        source_lat: validation.source.lat,
+        source_lng: validation.source.lng,
+        dest_lat: validation.destination.lat,
+        dest_lng: validation.destination.lng,
+        distance_km: validation.route.distance_km,
+        weight,
+        parcel_type: parcelType,
+        insurance,
+        time_slot: timeSlot,
+      });
+      setEtaPrediction(result);
+    } catch {
+      toast.error("ETA prediction failed");
+    } finally {
+      setIsPredictingEta(false);
+    }
+  };
+
+  const handleAnalyze = async () => {
+    if (!validationResult) {
+      toast.error("Validate addresses first");
+      return;
+    }
     setIsAnalyzing(true);
-    setTimeout(() => {
-      setIsAnalyzing(false);
+    setAiAnalyzed(false);
+    try {
+      const result = await predictEta({
+        source_lat: validationResult.source.lat,
+        source_lng: validationResult.source.lng,
+        dest_lat: validationResult.destination.lat,
+        dest_lng: validationResult.destination.lng,
+        distance_km: validationResult.route.distance_km,
+        weight,
+        parcel_type: parcelType,
+        insurance,
+        time_slot: timeSlot,
+      });
+      setEtaPrediction(result);
       setAiAnalyzed(true);
-    }, 1200);
+    } catch {
+      toast.error("AI insights failed — could not predict ETA");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const goNext = () => {
@@ -166,11 +314,64 @@ const BookParcel = () => {
     setStep((s) => Math.min(5, s + 1));
   };
 
+  const handleProceedToPayment = () => {
+    if (!validationResult) {
+      toast.error("Addresses must be validated first");
+      return;
+    }
+    
+    const weatherOptions = ["Clear", "Rainy", "Foggy", "Stormy"];
+    const simulatedWeather = validationResult.route.distance_km > 500 
+      ? weatherOptions[Math.floor(Math.random() * 4)] 
+      : "Clear";
+    const simulatedCongestion = validationResult.route.distance_km > 300 
+      ? ["Low", "Medium", "High"][Math.floor(Math.random() * 3)] 
+      : "Low";
+
+    const bookingData = {
+      sender_name: senderName,
+      sender_phone: senderPhone,
+      source_address: sourceAddress,
+      source_lat: validationResult.source.lat,
+      source_lng: validationResult.source.lng,
+      source_po: validationResult.nearest_source_postoffice.name,
+      
+      receiver_name: receiverName,
+      receiver_phone: receiverPhone,
+      destination_address: destAddress,
+      dest_lat: validationResult.destination.lat,
+      dest_lng: validationResult.destination.lng,
+      dest_po: validationResult.nearest_destination_postoffice.name,
+      
+      weight,
+      parcel_type: parcelType,
+      declared_value: declaredValue,
+      category,
+      time_slot: timeSlot,
+      insurance,
+      
+      distance_km: validationResult.route.distance_km,
+      duration_hours: validationResult.route.duration_hours,
+      duration_text: validationResult.route.duration_text,
+      transit_days: validationResult.route.transit_days,
+      route_coordinates: validationResult.route.coordinates,
+      
+      price_total: total,
+      weather: simulatedWeather,
+      congestion: simulatedCongestion
+    };
+    
+    sessionStorage.setItem("pending_booking", JSON.stringify(bookingData));
+    navigate("/user/payment");
+  };
+
+
   const toggleOpt = (id: SmartOptId) =>
     setSmartOpts((p) => ({ ...p, [id]: !p[id] }));
 
   return (
     <DashboardLayout role="user">
+      <PageBackground image={bgBook} variant="depth" />
       {/* Page header */}
       <div className="mb-10">
         <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-400 mb-3">
@@ -238,7 +439,7 @@ const BookParcel = () => {
       </div>
 
       {/* Card */}
-      <div className="max-w-3xl">
+      <div className={step === 1 ? "max-w-6xl" : "max-w-3xl"}>
         <div className="relative rounded-2xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-md overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent" />
 
@@ -254,123 +455,230 @@ const BookParcel = () => {
                   transition={{ duration: 0.35 }}
                   className="space-y-6"
                 >
-                  {/* Sender */}
-                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-5 space-y-4">
-                    <div className="flex items-center gap-2 text-orange-400">
-                      <User className="h-4 w-4" />
-                      <span className="text-xs font-black uppercase tracking-widest">Sender</span>
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Field label="Full Name">
-                        <Input defaultValue="Rohan Sharma" className={inputCls} />
-                      </Field>
-                      <Field label="Phone">
-                        <div className="relative">
-                          <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/60" />
-                          <Input defaultValue="+91 98765 43210" className={`pl-10 ${inputCls}`} />
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    {/* Left: address forms */}
+                    <div className="space-y-6">
+                      {/* Sender */}
+                      <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-5 space-y-4">
+                        <div className="flex items-center gap-2 text-orange-400">
+                          <User className="h-4 w-4" />
+                          <span className="text-xs font-black uppercase tracking-widest">Sender</span>
                         </div>
-                      </Field>
-                    </div>
-                    <Field label="Source Address">
-                      <div className="relative">
-                        <MapPin className="absolute left-3.5 top-3.5 h-4 w-4 text-orange-400/60" />
-                        <Textarea
-                          className={`pl-10 min-h-[72px] resize-none ${inputCls}`}
-                          defaultValue="42, MG Road, Pune, Maharashtra 411001"
-                        />
-                      </div>
-                    </Field>
-                  </div>
-
-                  {/* Receiver */}
-                  <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-5 space-y-4">
-                    <div className="flex items-center gap-2 text-violet-400">
-                      <User className="h-4 w-4" />
-                      <span className="text-xs font-black uppercase tracking-widest">Receiver</span>
-                    </div>
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Field label="Full Name">
-                        <Input defaultValue="Priya Mehta" className={inputCls} />
-                      </Field>
-                      <Field label="Phone">
-                        <div className="relative">
-                          <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400/60" />
-                          <Input defaultValue="+91 91234 56789" className={`pl-10 ${inputCls}`} />
-                        </div>
-                      </Field>
-                    </div>
-                    <Field label="Destination Address">
-                      <div className="relative">
-                        <MapPin className="absolute left-3.5 top-3.5 h-4 w-4 text-violet-400/60" />
-                        <Textarea
-                          className={`pl-10 min-h-[72px] resize-none ${inputCls}`}
-                          defaultValue="15, Connaught Place, New Delhi 110001"
-                        />
-                      </div>
-                    </Field>
-                  </div>
-
-                  {/* AI Validate */}
-                  <AnimatePresence mode="wait">
-                    {!aiValidated ? (
-                      <motion.button
-                        key="vbtn"
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        onClick={handleValidate}
-                        disabled={isValidating}
-                        className="group relative w-full overflow-hidden rounded-xl border border-orange-500/20 bg-orange-500/5 px-5 py-3.5 text-sm font-bold text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all flex items-center justify-center gap-2.5"
-                      >
-                        {isValidating ? (
-                          <>
-                            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
-                              <Sparkles className="h-4 w-4" />
-                            </motion.div>
-                            <span>AI is analysing addresses & route…</span>
-                            <motion.div
-                              animate={{ x: ["-100%", "200%"] }}
-                              transition={{ duration: 1.2, repeat: Infinity }}
-                              className="absolute inset-0 bg-gradient-to-r from-transparent via-orange-400/10 to-transparent"
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <Brain className="h-4 w-4" /> Validate with AI
-                          </>
-                        )}
-                      </motion.button>
-                    ) : (
-                      <motion.div
-                        key="validated"
-                        initial={{ opacity: 0, y: 10, scale: 0.97 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 p-4 space-y-3"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20">
-                            <CheckCircle className="h-4 w-4 text-emerald-400" />
-                          </div>
-                          <span className="font-black text-emerald-400 text-sm">
-                            AI Validated · Route Serviceable
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          {[
-                            { icon: Building2, label: "Origin PO", value: "Pune GPO" },
-                            { icon: Building2, label: "Destination PO", value: "Delhi GPO" },
-                            { icon: Route, label: "Distance", value: "1,452 km" },
-                            { icon: Clock, label: "Transit", value: "2–3 days" },
-                          ].map((item) => (
-                            <div key={item.label} className="rounded-lg bg-white/5 px-3 py-2.5">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-1">
-                                {item.label}
-                              </p>
-                              <p className="text-xs font-bold text-white">{item.value}</p>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          <Field label="Full Name">
+                            <Input value={senderName} onChange={(e) => setSenderName(e.target.value)} className={inputCls} />
+                          </Field>
+                          <Field label="Phone">
+                            <div className="relative">
+                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/60" />
+                              <Input value={senderPhone} onChange={(e) => setSenderPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
                             </div>
-                          ))}
+                          </Field>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        <AddressAutocomplete
+                          id="source-address"
+                          label="Source Address"
+                          value={sourceAddress}
+                          onChange={(v) => {
+                            setSourceAddress(v);
+                            resetValidation();
+                            if (sourceSelection && v !== sourceSelection.label) {
+                              setSourceSelection(null);
+                            }
+                          }}
+                          onSelect={(s) => {
+                            setSourceSelection(s);
+                            resetValidation();
+                          }}
+                          placeholder="Try: gachi hyd, MG Road Pune, Connaught Place..."
+                          accent="orange"
+                        />
+                      </div>
+
+                      {/* Receiver */}
+                      <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-5 space-y-4">
+                        <div className="flex items-center gap-2 text-violet-400">
+                          <User className="h-4 w-4" />
+                          <span className="text-xs font-black uppercase tracking-widest">Receiver</span>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          <Field label="Full Name">
+                            <Input value={receiverName} onChange={(e) => setReceiverName(e.target.value)} className={inputCls} />
+                          </Field>
+                          <Field label="Phone">
+                            <div className="relative">
+                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400/60" />
+                              <Input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
+                            </div>
+                          </Field>
+                        </div>
+                        <AddressAutocomplete
+                          id="dest-address"
+                          label="Destination Address"
+                          value={destAddress}
+                          onChange={(v) => {
+                            setDestAddress(v);
+                            resetValidation();
+                            if (destSelection && v !== destSelection.label) {
+                              setDestSelection(null);
+                            }
+                          }}
+                          onSelect={(s) => {
+                            setDestSelection(s);
+                            resetValidation();
+                          }}
+                          placeholder="Try: banjara hyd, Saket Delhi, Koramangala..."
+                          accent="violet"
+                        />
+                      </div>
+
+                      {/* AI Validate button */}
+                      <AnimatePresence mode="wait">
+                        {!aiValidated ? (
+                          <motion.button
+                            key="vbtn"
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            onClick={handleValidate}
+                            disabled={isValidating}
+                            className="group relative w-full overflow-hidden rounded-xl border border-orange-500/20 bg-orange-500/5 px-5 py-3.5 text-sm font-bold text-orange-400 hover:bg-orange-500/10 hover:border-orange-500/40 transition-all flex items-center justify-center gap-2.5 disabled:opacity-60"
+                          >
+                            {isValidating ? (
+                              <>
+                                <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
+                                  <Sparkles className="h-4 w-4" />
+                                </motion.div>
+                                <span>AI is analysing addresses & route…</span>
+                                <motion.div
+                                  animate={{ x: ["-100%", "200%"] }}
+                                  transition={{ duration: 1.2, repeat: Infinity }}
+                                  className="absolute inset-0 bg-gradient-to-r from-transparent via-orange-400/10 to-transparent"
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <Brain className="h-4 w-4" /> Validate with AI
+                              </>
+                            )}
+                          </motion.button>
+                        ) : null}
+                      </AnimatePresence>
+
+                      {validationError && (
+                        <div className="rounded-xl border border-red-500/25 bg-red-500/8 px-4 py-3 text-sm text-red-400">
+                          {validationError}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right: validation results + map */}
+                    <div className="space-y-4">
+                      <AnimatePresence mode="wait">
+                        {aiValidated && validationResult ? (
+                          <motion.div
+                            key="validated"
+                            initial={{ opacity: 0, y: 10, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 p-4 space-y-4"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/20">
+                                  <CheckCircle className="h-4 w-4 text-emerald-400" />
+                                </div>
+                                <span className="font-black text-emerald-400 text-sm">
+                                  {validationResult.overall_serviceable
+                                    ? "AI Validated · Route Serviceable"
+                                    : "Validated · Limited Serviceability"}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/70">
+                                {validationResult.overall_confidence}% confidence
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                {
+                                  icon: Building2,
+                                  label: "Origin PO",
+                                  value: validationResult.nearest_source_postoffice.name,
+                                  sub: `${validationResult.nearest_source_postoffice.distance_km} km`,
+                                },
+                                {
+                                  icon: Building2,
+                                  label: "Destination PO",
+                                  value: validationResult.nearest_destination_postoffice.name,
+                                  sub: `${validationResult.nearest_destination_postoffice.distance_km} km`,
+                                },
+                                {
+                                  icon: Route,
+                                  label: "Distance",
+                                  value: `${validationResult.route.distance_km.toLocaleString("en-IN")} km`,
+                                  sub: validationResult.route.duration_text,
+                                },
+                                {
+                                  icon: Clock,
+                                  label: "Transit",
+                                  value: validationResult.route.transit_days,
+                                  sub: `ETA ${validationResult.route.duration_text}`,
+                                },
+                              ].map((item) => (
+                                <div key={item.label} className="rounded-lg bg-white/5 px-3 py-2.5">
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/30 mb-1">
+                                    {item.label}
+                                  </p>
+                                  <p className="text-xs font-bold text-white line-clamp-2">{item.value}</p>
+                                  {item.sub && (
+                                    <p className="text-[10px] text-white/40 mt-0.5">{item.sub}</p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              <div className="rounded-lg border border-orange-500/15 bg-orange-500/5 px-3 py-2">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-orange-400/60">Source</p>
+                                <p className="text-xs font-semibold text-white mt-1">{validationResult.source.matched_label}</p>
+                                <p className="text-[10px] text-white/40 mt-0.5">{validationResult.source.confidence}% match</p>
+                              </div>
+                              <div className="rounded-lg border border-violet-500/15 bg-violet-500/5 px-3 py-2">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-violet-400/60">Destination</p>
+                                <p className="text-xs font-semibold text-white mt-1">{validationResult.destination.matched_label}</p>
+                                <p className="text-[10px] text-white/40 mt-0.5">{validationResult.destination.confidence}% match</p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            key="placeholder"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-6 flex flex-col items-center justify-center text-center min-h-[200px]"
+                          >
+                            <Brain className="h-8 w-8 text-white/15 mb-3" />
+                            <p className="text-sm font-semibold text-white/30">AI Validation & Live Map</p>
+                            <p className="text-xs text-white/20 mt-1 max-w-xs">
+                              Enter addresses, select suggestions, then validate to see route intelligence and nearest post offices.
+                            </p>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {aiValidated && validationResult && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.15 }}
+                        >
+                          <ValidationMap
+                            markers={mapMarkers}
+                            routeCoordinates={validationResult.route.coordinates}
+                            className="h-[320px] lg:h-[360px]"
+                          />
+                        </motion.div>
+                      )}
+                    </div>
+                  </div>
 
                   <NavRow>
                     <span />
@@ -661,18 +969,29 @@ const BookParcel = () => {
                         <Brain className="h-10 w-10 text-violet-400" />
                       </motion.div>
                       <p className="text-sm font-bold text-violet-300">
-                        AI is analyzing your shipment…
+                        Predicting delivery time…
                       </p>
                       <p className="text-xs text-white/40 mt-1">
-                        Predicting ETA · scoring risk · optimizing route
+                        ML model analyzing distance · weight · parcel type · route complexity
                       </p>
+                      <div className="mt-5 mx-auto max-w-xs space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <motion.div
+                            key={i}
+                            initial={{ opacity: 0.3 }}
+                            animate={{ opacity: [0.3, 0.7, 0.3] }}
+                            transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                            className="h-2 rounded-full bg-white/10"
+                          />
+                        ))}
+                      </div>
                       <motion.div
                         animate={{ x: ["-100%", "200%"] }}
                         transition={{ duration: 1.4, repeat: Infinity }}
                         className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-violet-400/10 to-transparent"
                       />
                     </div>
-                  ) : aiAnalyzed ? (
+                  ) : aiAnalyzed && etaPrediction ? (
                     <motion.div
                       initial="hidden"
                       animate="show"
@@ -682,67 +1001,72 @@ const BookParcel = () => {
                       <InsightCard
                         icon={Clock}
                         tint="text-blue-400"
-                        title="Predicted Delivery Window"
-                        value="Feb 28 – Mar 1, 2026"
-                        sub="94% AI confidence · based on 12k similar routes"
+                        title="Estimated Delivery Time"
+                        value={`${etaPrediction.estimated_days} days · ${etaPrediction.estimated_hours} hrs`}
+                        sub={`Model: ${etaPrediction.model_type.replace(/_/g, " ")} · ${validationResult?.route.distance_km.toLocaleString("en-IN")} km route`}
                       />
                       <InsightCard
                         icon={Route}
                         tint="text-orange-400"
-                        title="Smart Route Preview"
-                      >
-                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                          {["Pune GPO", "Nagpur Hub", "Bhopal Sort", "Delhi GPO"].map((h, i, arr) => (
-                            <div key={h} className="flex items-center gap-1.5">
-                              <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-bold text-white">
-                                {h}
-                              </span>
-                              {i < arr.length - 1 && (
-                                <ArrowRight className="h-3 w-3 text-white/30" />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </InsightCard>
+                        title="ETA Range"
+                        value={`${etaPrediction.eta_range.min_days} – ${etaPrediction.eta_range.max_days} days`}
+                        sub={`Window based on ${parcelType} · ${weight} kg · ${timeSlot} slot`}
+                      />
                       <InsightCard
                         icon={Shield}
                         tint="text-emerald-400"
-                        title="Risk Score"
-                        value="Low"
-                        sub="Weather OK · Route stable · No congestion alerts"
+                        title="Confidence Score"
+                        value={`${Math.round(etaPrediction.confidence_score * 100)}%`}
+                        sub={
+                          etaPrediction.confidence_score >= 0.8
+                            ? "High confidence prediction"
+                            : etaPrediction.confidence_score >= 0.65
+                            ? "Moderate confidence — route variables apply"
+                            : "Lower confidence — review risk factors"
+                        }
                       />
                       <InsightCard
-                        icon={Leaf}
-                        tint="text-emerald-400"
-                        title="Carbon Footprint"
+                        icon={Zap}
+                        tint="text-amber-400"
+                        title="Risk Factors"
                       >
-                        <div className="mt-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-white/50">Your shipment</span>
-                            <span className="font-bold text-white">2.4 kg CO₂</span>
-                          </div>
-                          <div className="mt-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
-                            <div className="h-full w-[45%] bg-gradient-to-r from-emerald-500 to-emerald-300" />
-                          </div>
-                          <p className="mt-1.5 text-[11px] text-white/40">
-                            18% below average for this route
-                          </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {etaPrediction.risk_factors.map((risk) => (
+                            <motion.span
+                              key={risk}
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-300 capitalize"
+                            >
+                              {risk}
+                            </motion.span>
+                          ))}
                         </div>
                       </InsightCard>
-                      <InsightCard
-                        icon={Boxes}
-                        tint="text-amber-400"
-                        title="Packaging Recommendation"
-                        value="Medium box · 35×25×20 cm"
-                        sub="Best fit for declared dimensions"
-                      />
-                      <InsightCard
-                        icon={TrendingDown}
-                        tint="text-violet-400"
-                        title="Price Optimization"
-                        value={parcelType === "express" ? "Save ₹40 with Standard" : "You're on the optimal plan"}
-                        sub={parcelType === "express" ? "Delivery would be 1 day later" : "No cheaper alternative for this route"}
-                      />
+                      {validationResult && (
+                        <InsightCard
+                          icon={Building2}
+                          tint="text-violet-400"
+                          title="Smart Route Preview"
+                        >
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            {[
+                              validationResult.nearest_source_postoffice.name,
+                              "Regional Hub",
+                              validationResult.nearest_destination_postoffice.name,
+                            ].map((h, i, arr) => (
+                              <div key={h} className="flex items-center gap-1.5">
+                                <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-bold text-white line-clamp-1 max-w-[140px]">
+                                  {h}
+                                </span>
+                                {i < arr.length - 1 && (
+                                  <ArrowRight className="h-3 w-3 text-white/30 shrink-0" />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </InsightCard>
+                      )}
                     </motion.div>
                   ) : null}
 
@@ -850,7 +1174,7 @@ const BookParcel = () => {
                   <NavRow>
                     <BackBtn onClick={() => setStep(4)} />
                     <Button
-                      onClick={() => navigate("/user/payment")}
+                      onClick={handleProceedToPayment}
                       disabled={!agreed}
                       className={primaryBtn}
                     >

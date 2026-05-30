@@ -126,10 +126,10 @@ const CommandPalette = ({ open, setOpen, role }: CommandPaletteProps) => {
                                 </Command.Group>
 
                                 <Command.Group heading={<span className="px-2 text-[10px] font-bold uppercase tracking-widest text-white/20">Account</span>}>
-                                    <Command.Item className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-white/60 hover:bg-white/5 hover:text-white transition-all aria-selected:bg-white/5 aria-selected:text-white">
+                                    {/* <Command.Item className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-white/60 hover:bg-white/5 hover:text-white transition-all aria-selected:bg-white/5 aria-selected:text-white">
                                         <User className="h-4 w-4" />
                                         <span>Profile Settings</span>
-                                    </Command.Item>
+                                    </Command.Item> */}
                                     <Command.Item
                                         onSelect={() => runCommand(() => navigate("/login"))}
                                         className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 text-sm text-red-400/60 hover:bg-red-500/10 hover:text-red-400 transition-all aria-selected:bg-red-500/10 aria-selected:text-red-400"

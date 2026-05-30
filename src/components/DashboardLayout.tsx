@@ -11,6 +11,7 @@ import {
   BarChart3,
   Search,
   Menu,
+  Mic,
 } from "lucide-react";
 import { useState } from "react";
 import CommandPalette from "./CommandPalette";
@@ -32,6 +33,8 @@ const navItems = {
     { label: "Dashboard", icon: LayoutDashboard, path: "/staff/dashboard" },
     { label: "Assigned Parcels", icon: Truck, path: "/staff/parcels" },
     { label: "Update Status", icon: ClipboardList, path: "/staff/update" },
+    { label: "Voice Assistant", icon: Mic, path: "/staff/voice" },
+    { label: "Emergency Center", icon: AlertTriangle, path: "/staff/incidents" },
   ],
   admin: [
     { label: "Dashboard", icon: BarChart3, path: "/admin/dashboard" },
