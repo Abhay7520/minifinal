@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     max_autocomplete_results: int = 8
     postoffice_search_radius_km: float = 50.0
     avg_road_speed_kmh: float = 55.0
-    mongodb_url: str = "mongodb://localhost:27017"
+    # Atlas MongoDB connection (SRV)
+    mongodb_url: str = "mongodb+srv://postal_user:aipostal@cluster0.g0mulqc.mongodb.net/?appName=Cluster0"
     mongodb_db_name: str = "aipostal"
+
     osrm_base_url: str = "https://router.project-osrm.org"
     
     class Config:
