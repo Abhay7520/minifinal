@@ -42,7 +42,7 @@ app.set("io", io);
 
 // Enable CORS for frontend applications (ports 5173, 8080)
 app.use(cors({
-  origin: "*", // Allow all origins for development; adjust in production
+  origin: "*", // Allow all origins for development; adjust in productions
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
