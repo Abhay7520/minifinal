@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgOrders from "@/assets/bg-orders.jpg";
 import { Link } from "react-router-dom";
 import {
   MapPin,
