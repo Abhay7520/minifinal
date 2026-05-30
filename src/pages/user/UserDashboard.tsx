@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import PostalBackground from "@/components/PostalBackground";
 import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, Zap, Calendar, BarChart3, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -129,6 +130,7 @@ const UserDashboard = () => {
 
   return (
     <DashboardLayout role="user">
+      <PostalBackground />
       {/* Welcome Banner */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
