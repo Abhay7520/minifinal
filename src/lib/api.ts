@@ -1,8 +1,21 @@
-// Explicitly map your target instances
-export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // All Staff/Logistics logic
-export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";   // Auth, AI, Address datasets
+// Your absolute live Render endpoints
+export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; 
+export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    
 
-xport function getApiUrl(path: string): string {
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+// Precise routing logic based on your backend folders
+export function getApiUrl(path: string): string {
   // 1. Python/FastAPI Backend routes:
   if (
     path.startsWith('/auth') || 
@@ -20,33 +33,8 @@ xport function getApiUrl(path: string): string {
   return `${NODE_BACKEND_URL}${path}`;
 }
 
-export class ApiError extends Error {
-  status: number;
-  detail: unknown;
-
-  constructor(message: string, status: number, detail?: unknown) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.detail = detail;
-  }
-}
-
-// Global router modifier mapping
-export function getApiUrl(path: string): string {
-  // If your system handles everything via Python, route everything to AI_BACKEND_URL.
-  // If maps/websockets still require Node, you can add selective conditions here later.
-  return `${AI_BACKEND_URL}${path}`;
-}
-
 async function parseResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
-  
-  // Guard clause against HTML fallback leakage strings to pinpoint routing errors cleanly
-  if (text.trim().startsWith("<!DOCTYPE")) {
-    throw new ApiError("Server returned HTML page instead of API JSON data. Mismatch target detected.", 404);
-  }
-
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
@@ -83,7 +71,5 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     },
     body: JSON.stringify(body),
   });
-  return parseResponse<T>(response);
+  return parseResponse<T>(parseResponse(response)); // Fixed chain
 }
-
-export const API_BASE = AI_BACKEND_URL;
