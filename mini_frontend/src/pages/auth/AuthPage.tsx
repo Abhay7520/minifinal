@@ -167,6 +167,21 @@ const AuthPage = () => {
       return;
     }
 
+    // ── Save user name to localStorage ──────────────────────────────
+    if (!isLogin && formData.name.trim()) {
+      // Registration: save the name they typed
+      localStorage.setItem("userName", formData.name.trim());
+    } else if (isLogin) {
+      // Login: keep existing stored name, or fall back to email prefix
+      if (!localStorage.getItem("userName")) {
+        const emailPrefix = formData.email.split("@")[0];
+        // Capitalise first letter
+        const fallback = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+        localStorage.setItem("userName", fallback);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────
+
     if (!isLogin) {
       toast({
         title: "Account created successfully 🎉",
@@ -254,9 +269,6 @@ const AuthPage = () => {
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="w-full max-w-md"
         >
-
-
-
           {/* Mobile Back button */}
           <Link
             to={`/auth/select/${mode}`}
@@ -264,7 +276,6 @@ const AuthPage = () => {
           >
             <ArrowLeft className="h-4 w-4" /> Back
           </Link>
-
 
           {/* Mobile logo */}
           <Link to="/" className="mb-6 flex items-center gap-2.5 font-black text-xl text-white lg:hidden">
@@ -450,7 +461,6 @@ const AuthPage = () => {
         </motion.div>
       </div>
     </div>
-
   );
 };
 

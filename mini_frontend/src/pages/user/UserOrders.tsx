@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgOrders from "@/assets/bg-orders.jpg";
 import { Link } from "react-router-dom";
 import {
   MapPin,
@@ -77,45 +79,7 @@ const UserOrders = () => {
 
   return (
     <DashboardLayout role="user">
-      {/* Animated Postal Background */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-10">
-        {/* Gradient Glow */}
-        <div className="absolute inset-0 bg-gradient-to-br from-orange-500/[0.03] via-transparent to-violet-500/[0.03]" />
-
-        {floatingItems.map((item) => {
-          const Icon = postalIcons[item.iconIndex];
-
-          return (
-            <motion.div
-              key={item.id}
-              className="absolute text-orange-400/20 drop-shadow-lg"
-              style={{
-                left: `${item.left}%`,
-              }}
-              initial={{
-                y: "110vh",
-                x: 0,
-                rotate: 0,
-              }}
-              animate={{
-                y: "-20vh",
-                x: [-20, 20, -20],
-                rotate: 360,
-              }}
-              transition={{
-                duration: item.duration,
-                repeat: Infinity,
-                ease: "linear",
-                delay: item.delay,
-              }}
-            >
-              <Icon size={item.size} />
-            </motion.div>
-          );
-        })}
-      </div>
-      <div className="fixed top-20 left-20 h-72 w-72 rounded-full bg-orange-500/10 blur-3xl pointer-events-none -z-10" />
-      <div className="fixed bottom-20 right-20 h-72 w-72 rounded-full bg-violet-500/10 blur-3xl pointer-events-none -z-10" />
+       <PageBackground image={bgOrders} variant="pulse" />
       <div className="relative z-10">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">

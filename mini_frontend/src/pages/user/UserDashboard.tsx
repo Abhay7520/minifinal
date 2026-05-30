@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgDashboard from "@/assets/bg-dashboard.jpg";
 import { Package, MapPin, Clock, TrendingUp, ArrowUpRight, ArrowRight, Bell, Sparkles, Shield, ChevronRight, Zap, Calendar, BarChart3, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -62,9 +64,28 @@ const getGreeting = () => {
   return "Good evening";
 };
 
+// Helper: capitalise each word of a name
+const formatName = (raw: string) =>
+  raw
+    .trim()
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
 const UserDashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const unreadCount = notifications.filter(n => n.unread).length;
+
+  // ── Read user name from localStorage (set during login/register) ──
+  const [userName, setUserName] = useState("there");
+
+  useEffect(() => {
+    const stored = localStorage.getItem("userName");
+    if (stored) {
+      setUserName(formatName(stored));
+    }
+  }, []);
+  // ─────────────────────────────────────────────────────────────────
 
   const [parcels, setParcels] = useState<any[]>([]);
   const [stats, setStats] = useState(initialStats);
@@ -129,6 +150,7 @@ const UserDashboard = () => {
 
   return (
     <DashboardLayout role="user">
+      <PageBackground image={bgDashboard} variant="drift" />
       {/* Welcome Banner */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -141,7 +163,8 @@ const UserDashboard = () => {
               <Sparkles className="h-4 w-4 text-orange-400" />
               <span className="text-xs font-medium uppercase tracking-wider text-orange-400/80">AI Postal Dashboard</span>
             </div>
-            <h1 className="font-display text-3xl font-bold text-white">{getGreeting()}, John 👋</h1>
+            {/* ── Dynamic greeting uses userName from localStorage ── */}
+            <h1 className="font-display text-3xl font-bold text-white">{getGreeting()}, {userName} 👋</h1>
             <p className="mt-1 text-white/50">You have <span className="font-semibold text-orange-400">{parcels.filter(p => p.status !== "Delivered").length || 3} active parcels</span> being tracked right now</p>
           </div>
           <div className="hidden lg:flex items-center gap-3">
