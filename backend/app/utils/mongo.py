@@ -1,7 +1,9 @@
 import logging
+import os
 import pymongo
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from app.config import settings
+
 
 logger = logging.getLogger("aipostal.database")
 
@@ -156,11 +158,19 @@ class MongoDBService:
             logger.info("Successfully connected to real MongoDB instance!")
             print("Successfully connected to real MongoDB instance!")
         except (ConnectionFailure, ServerSelectionTimeoutError, Exception) as e:
-            logger.warning(f"Failed to connect to MongoDB: {e}. Falling back to in-memory MockDatabase.")
-            print(f"MongoDB warning: {e}. Falling back to in-memory MockDatabase.")
+            # If we silently fall back to an in-memory mock, signup/login may “work” but nothing is persisted.
+            # Allow mock mode only when explicitly enabled.
+            use_mock = os.getenv("USE_MOCK_DB", "false").strip().lower() in {"1", "true", "yes"}
+            logger.exception("Failed to connect to MongoDB: %s. use_mock=%s", e, use_mock)
+            if not use_mock:
+                raise
+
+            logger.warning("Falling back to in-memory MockDatabase because USE_MOCK_DB=true")
+            print(f"MongoDB warning: {e}. Falling back to in-memory MockDatabase (USE_MOCK_DB=true).")
             self.client = None
             self.db = MockDatabase()
             self.is_mock = True
+
 
     def get_collection(self, name: str):
         if self.db is None:

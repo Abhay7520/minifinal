@@ -7,6 +7,8 @@
 - [x] Update MIGRATE_MONGO.md with new auth collection name/fields
 - [x] Update backend/requirements.txt with required dependencies
 - [x] Run backend and test login/signup against MongoDB
+- [ ] Add logs to show whether mock DB is being used (next)
+
 
 
 
