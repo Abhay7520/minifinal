@@ -11,8 +11,10 @@ All collections in your local database `aipostal` (as used by the app code):
 - `shipment_status`
 - `tracking_history`
 - `anomaly_logs`
+- `users` (auth accounts for login/signup)
 
 (Plus any other collections that already exist in local `aipostal`.)
+
 
 ---
 

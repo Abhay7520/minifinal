@@ -153,7 +153,7 @@ const AuthPage = () => {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "" });
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -167,30 +167,45 @@ const AuthPage = () => {
       return;
     }
 
-    // ── Save user name to localStorage ──────────────────────────────
-    if (!isLogin && formData.name.trim()) {
-      // Registration: save the name they typed
-      localStorage.setItem("userName", formData.name.trim());
-    } else if (isLogin) {
-      // Login: keep existing stored name, or fall back to email prefix
-      if (!localStorage.getItem("userName")) {
-        const emailPrefix = formData.email.split("@")[0];
-        // Capitalise first letter
-        const fallback = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
-        localStorage.setItem("userName", fallback);
+    try {
+      const { apiPost } = await import("@/lib/api");
+
+
+      if (!isLogin) {
+        const payload = {
+          role,
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+        };
+
+        const res = await apiPost<{ token: string; role: string; email: string; name: string }>("/auth/signup", payload);
+        localStorage.setItem("token", res.token);
+        localStorage.setItem("userName", res.name);
+
+        toast({
+          title: "Account created successfully 🎉",
+          description: `Welcome to AIPOSTAL as ${cfg.label}!`,
+        });
+      } else {
+        const payload = {
+          role,
+          email: formData.email,
+          password: formData.password,
+        };
+
+        const res = await apiPost<{ token: string; role: string; email: string; name: string }>("/auth/login", payload);
+        localStorage.setItem("token", res.token);
+        localStorage.setItem("userName", res.name || formData.email.split("@")[0]);
       }
-    }
-    // ────────────────────────────────────────────────────────────────
 
-    if (!isLogin) {
-      toast({
-        title: "Account created successfully 🎉",
-        description: `Welcome to AIPOSTAL as ${cfg.label}!`,
-      });
+      navigate(`/${role}/dashboard`);
+    } catch (e: any) {
+      setError(e?.message || "Authentication failed");
     }
-
-    navigate(`/${role}/dashboard`);
   };
+
+
 
   const toggleMode = isLogin ? "register" : "login";
 

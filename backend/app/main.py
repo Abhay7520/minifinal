@@ -42,15 +42,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routes.auth import router as auth_router
+
 app.include_router(address_router)
 app.include_router(eta_router)
 app.include_router(risk_router)
 app.include_router(tracking_router)
 app.include_router(anomaly_router)
 app.include_router(staff_router)
+app.include_router(auth_router)
 
 
 @app.get("/health")
+
 def health():
     from app.ml.config import MODEL_PATH, META_PATH
     import json

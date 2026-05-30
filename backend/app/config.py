@@ -1,7 +1,11 @@
 from pathlib import Path
 from typing import List
+import os
+
+
 
 from pydantic_settings import BaseSettings
+
 
 
 class Settings(BaseSettings):
@@ -23,11 +27,17 @@ class Settings(BaseSettings):
     mongodb_url: str = "mongodb+srv://postal_user:aipostal@cluster0.g0mulqc.mongodb.net/?appName=Cluster0"
     mongodb_db_name: str = "aipostal"
 
+    # JWT auth
+    jwt_secret: str = os.getenv("JWT_SECRET", "dev-change-me")
+    jwt_exp_minutes: int = 60 * 24
+
     osrm_base_url: str = "https://router.project-osrm.org"
+    
     
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 
 settings = Settings()
