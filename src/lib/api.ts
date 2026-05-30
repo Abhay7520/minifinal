@@ -1,6 +1,6 @@
-// Your absolute live Render endpoints
-export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // For logistics tracking
-export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    // For auth and address datasets
+// Explicitly map your target instances
+export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; 
+export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    
 
 export class ApiError extends Error {
   status: number;
@@ -14,24 +14,21 @@ export class ApiError extends Error {
   }
 }
 
-// Fixed routing mechanism to ensure address dataset lookups hit the Python backend folder
+// Global router modifier mapping
 export function getApiUrl(path: string): string {
-  if (
-    path.startsWith('/auth') || 
-    path.startsWith('/address') || 
-    path.startsWith('/search-address') || 
-    path.startsWith('/validate-address') || 
-    path.startsWith('/anomaly') || 
-    path.startsWith('/eta') || 
-    path.startsWith('/risk')
-  ) {
-    return `${AI_BACKEND_URL}${path}`;
-  }
-  return `${NODE_BACKEND_URL}${path}`;
+  // If your system handles everything via Python, route everything to AI_BACKEND_URL.
+  // If maps/websockets still require Node, you can add selective conditions here later.
+  return `${AI_BACKEND_URL}${path}`;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
+  
+  // Guard clause against HTML fallback leakage strings to pinpoint routing errors cleanly
+  if (text.trim().startsWith("<!DOCTYPE")) {
+    throw new ApiError("Server returned HTML page instead of API JSON data. Mismatch target detected.", 404);
+  }
+
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
@@ -71,5 +68,4 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return parseResponse<T>(response);
 }
 
-// Keep export fallback to prevent breakages elsewhere
-export const API_BASE = NODE_BACKEND_URL;
+export const API_BASE = AI_BACKEND_URL;
