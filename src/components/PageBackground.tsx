@@ -21,7 +21,7 @@ const PageBackground = ({ image, variant = "drift" }: PageBackgroundProps) => {
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${image})` }}
         initial={{ scale: 1.05, opacity: 0 }}
-        animate={{ ...variantAnim[variant], opacity: variantAnim[variant].opacity ?? 0.65 }}
+        animate={{ ...variantAnim[variant], opacity: 0.7 }}
         transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
       />
 
