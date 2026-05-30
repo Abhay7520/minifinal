@@ -14,6 +14,7 @@ export class ApiError extends Error {
 }
 
 export function getApiUrl(path: string): string {
+  // 1. Python/FastAPI Backend routes (No /api prefix needed):
   if (
     path.startsWith('/auth') || 
     path.startsWith('/address') || 
@@ -25,7 +26,11 @@ export function getApiUrl(path: string): string {
   ) {
     return `${AI_BACKEND_URL}${path}`;
   }
-  return `${NODE_BACKEND_URL}${path}`;
+
+  // 2. Node.js Backend routes (Add /api prefix here):
+  // If the path doesn't already start with /api, we prepend it.
+  const apiPath = path.startsWith('/api') ? path : `/api${path}`;
+  return `${NODE_BACKEND_URL}${apiPath}`;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
