@@ -595,7 +595,7 @@ const DeliveryAgentDashboard = () => {
     lat: agentCoords[0],
     lng: agentCoords[1],
     label: `Rohan Sharma (You) · Speed: ${agentSpeed} km/h · Battery: ${batteryLevel}%`,
-    status: "agent"
+    status: "moving"
   });
 
   // Calculate default center of map

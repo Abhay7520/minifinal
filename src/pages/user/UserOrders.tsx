@@ -79,7 +79,7 @@ const UserOrders = () => {
 
   return (
     <DashboardLayout role="user">
-       <PageBackground image={bgOrders} variant="pulse" />
+      <PageBackground image={bgOrders} variant="pulse" />
       <div className="relative z-10">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
