@@ -1,19 +1,6 @@
-// Explicitly separate your two live Render servers
-export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // For Tracking, Maps, Staff Logistics
-export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    // For Auth (Signup/Login) and AI Core
-//  Modify API_BASE dynamically based on the path
-export function getApiUrl(path: string): string {
-  // If the frontend asks for /auth or AI components, send it to the Python backend
-  if (path.startsWith('/auth') || path.startsWith('/address') || path.startsWith('/anomaly') || path.startsWith('/eta') || path.startsWith('/risk')) path.startsWith('/search-address') ||  // 👈 Added this route target
-    path.startsWith('/validate-address') || {
-    return `${AI_BACKEND_URL}${path}`;
-  }
-  // Otherwise, send it to the core Node logistics backend
-  return `${NODE_BACKEND_URL}${path}`;
-}
-
-// Keeping API_BASE pointing to your core Node backend to avoid breaking existing tracking routes
-const API_BASE = NODE_BACKEND_URL;
+// Your absolute live Render endpoints
+export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // For logistics tracking
+export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    // For auth and address datasets
 
 export class ApiError extends Error {
   status: number;
@@ -25,6 +12,22 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+// Fixed routing mechanism to ensure address dataset lookups hit the Python backend folder
+export function getApiUrl(path: string): string {
+  if (
+    path.startsWith('/auth') || 
+    path.startsWith('/address') || 
+    path.startsWith('/search-address') || 
+    path.startsWith('/validate-address') || 
+    path.startsWith('/anomaly') || 
+    path.startsWith('/eta') || 
+    path.startsWith('/risk')
+  ) {
+    return `${AI_BACKEND_URL}${path}`;
+  }
+  return `${NODE_BACKEND_URL}${path}`;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -68,4 +71,5 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return parseResponse<T>(response);
 }
 
-export { API_BASE };
+// Keep export fallback to prevent breakages elsewhere
+export const API_BASE = NODE_BACKEND_URL;
