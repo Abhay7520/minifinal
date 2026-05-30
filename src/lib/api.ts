@@ -1,7 +1,6 @@
-// Detect production environment variables from Vercel, fallback to local ports
-export const NODE_BACKEND_URL = import.meta.env.VITE_NODE_BACKEND_URL || "http://localhost:5000";
-export const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:8000";
-
+// Explicitly separate your two live Render servers
+export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; // For Tracking, Maps, Staff Logistics
+export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    // For Auth (Signup/Login) and AI Core
 //  Modify API_BASE dynamically based on the path
 export function getApiUrl(path: string): string {
   // If the frontend asks for /auth or AI components, send it to the Python backend
