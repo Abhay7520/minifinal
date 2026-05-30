@@ -1,4 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// Detect production environment variables from Vercel, fallback to local ports
+export const NODE_BACKEND_URL = import.meta.env.VITE_NODE_BACKEND_URL || "http://localhost:5000";
+export const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:8000";
+
+// Keeping API_BASE pointing to your core Node backend to avoid breaking existing tracking routes
+const API_BASE = NODE_BACKEND_URL;
 
 export class ApiError extends Error {
   status: number;
