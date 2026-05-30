@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
-import PostalBackground from "@/components/PostalBackground";
+import PageBackground from "@/components/PageBackground";
+import bgTrack from "@/assets/bg-track.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import LeafletMap from "@/components/LeafletMap";
@@ -127,7 +128,7 @@ const TrackParcel = () => {
 
   return (
     <DashboardLayout role="user">
-      <PostalBackground />
+      <PageBackground image={bgTrack} variant="scan" />
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white">Track Parcel</h1>

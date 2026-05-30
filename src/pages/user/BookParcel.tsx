@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
-import PostalBackground from "@/components/PostalBackground";
+import PageBackground from "@/components/PageBackground";
+import bgBook from "@/assets/bg-book.jpg";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import ValidationMap from "@/components/ValidationMap";
 import type { ValidationMapMarker } from "@/components/ValidationMap";
@@ -370,7 +371,7 @@ const BookParcel = () => {
 
   return (
     <DashboardLayout role="user">
-      <PostalBackground />
+      <PageBackground image={bgBook} variant="depth" />
       {/* Page header */}
       <div className="mb-10">
         <div className="inline-flex items-center gap-2 rounded-full border border-orange-500/20 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-400 mb-3">
