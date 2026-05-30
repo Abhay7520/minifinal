@@ -1,5 +1,4 @@
-const NODE_API_BASE = "http://localhost:5000/api";
-
+import { apiGet } from "@/lib/api";
 export interface LiveMapData {
   staff: Array<{
     id: string;
