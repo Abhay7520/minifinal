@@ -75,7 +75,10 @@ app.use("/api/admin/staff", staffAdminRouter);
 app.use("/api/admin", adminRouter);
 
 // DB Connection
-const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/aipostal";
+const mongoUri =
+  process.env.MONGODB_URI ||
+  "mongodb+srv://postal_user:aipostal@cluster0.g0mulqc.mongodb.net/?appName=Cluster0";
+
 console.log(`Attempting database connection to: ${mongoUri}...`);
 
 mongoose.connect(mongoUri, {
