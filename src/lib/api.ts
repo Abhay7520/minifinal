@@ -70,6 +70,19 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    
   });
-  return parseResponse<T>(parseResponse(response)); // Fixed chain
+  
+  export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(getApiUrl(path), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  // Simply pass the response object here
+  return parseResponse<T>(response); 
+}
 }
