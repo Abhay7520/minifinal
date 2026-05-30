@@ -2,6 +2,16 @@
 export const NODE_BACKEND_URL = import.meta.env.VITE_NODE_BACKEND_URL || "http://localhost:5000";
 export const AI_BACKEND_URL = import.meta.env.VITE_AI_BACKEND_URL || "http://localhost:8000";
 
+//  Modify API_BASE dynamically based on the path
+export function getApiUrl(path: string): string {
+  // If the frontend asks for /auth or AI components, send it to the Python backend
+  if (path.startsWith('/auth') || path.startsWith('/address') || path.startsWith('/anomaly') || path.startsWith('/eta') || path.startsWith('/risk')) {
+    return `${AI_BACKEND_URL}${path}`;
+  }
+  // Otherwise, send it to the core Node logistics backend
+  return `${NODE_BACKEND_URL}${path}`;
+}
+
 // Keeping API_BASE pointing to your core Node backend to avoid breaking existing tracking routes
 const API_BASE = NODE_BACKEND_URL;
 
@@ -33,7 +43,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 export async function apiGet<T>(path: string, params?: Record<string, string | number>): Promise<T> {
-  const url = new URL(`${API_BASE}${path}`);
+  const url = new URL(getApiUrl(path));
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.set(key, String(value));
@@ -47,7 +57,7 @@ export async function apiGet<T>(path: string, params?: Record<string, string | n
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(getApiUrl(path), {
     method: "POST",
     headers: {
       Accept: "application/json",
