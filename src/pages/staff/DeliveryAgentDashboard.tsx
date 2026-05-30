@@ -1170,7 +1170,7 @@ const DeliveryAgentDashboard = () => {
                                               key={reason}
                                               size="sm"
                                               variant="outline"
-                                              onClick={() => handleReportFailure(stop.id, reason)}
+                                              onClick={() => handleReportFailure(stop.id, reason)} 
                                               className="border-white/5 bg-white/5 hover:border-red-500/30 text-white/70 hover:text-red-400 text-xs capitalize text-left justify-start rounded-lg"
                                             >
                                               {reason}
