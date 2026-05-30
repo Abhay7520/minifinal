@@ -4,7 +4,7 @@ export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    // For Auth
 //  Modify API_BASE dynamically based on the path
 export function getApiUrl(path: string): string {
   // If the frontend asks for /auth or AI components, send it to the Python backend
-  if (path.startsWith('/auth') || path.startsWith('/address') || path.startsWith('/anomaly') || path.startsWith('/eta') || path.startsWith('/risk')) {
+  if (path.startsWith('/auth') || path.startsWith('/address') || path.startsWith('/anomaly') || path.startsWith('/eta') || path.startsWith('/risk')) || path.startsWith('/search-address') || path.startsWith('/validate-address')|| path.startsWith('/staff') || path.startsWith('/incident') || path.startsWith('/voice') {
     return `${AI_BACKEND_URL}${path}`;
   }
   // Otherwise, send it to the core Node logistics backend
