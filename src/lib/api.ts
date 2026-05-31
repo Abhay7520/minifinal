@@ -22,7 +22,11 @@ export function getApiUrl(path: string): string {
     path.startsWith('/validate-address') || 
     path.startsWith('/anomaly') || 
     path.startsWith('/eta') || 
-    path.startsWith('/risk')
+    path.startsWith('/risk') ||
+    // Parcel booking & tracking live on the FastAPI app
+    path.startsWith('/parcels') ||
+    path.startsWith('/tracking') ||
+    path.startsWith('/predict-eta')
   ) {
     return `${AI_BACKEND_URL}${path}`;
   }
