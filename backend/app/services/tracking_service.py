@@ -19,14 +19,21 @@ def generate_tracking_id() -> str:
     # E.g., AIP + 6 random digits
     return f"AIP{random.randint(100000, 999999)}"
 
-def create_parcel(parcel_data: Dict[str, Any]) -> str:
+def create_parcel(parcel_data: Dict[str, Any], owner_payload: Dict[str, Any] | None = None) -> str:
     tracking_id = generate_tracking_id()
-    
+
     # Save the base parcel
     parcels_col = db_service.get_collection("parcels")
     created_at = datetime.datetime.now(datetime.timezone.utc)
-    
-    parcel_doc = {
+
+    owner_id = None
+    owner_email = None
+    if owner_payload:
+        # Existing JWT uses `sub` as the email
+        owner_email = owner_payload.get("sub")
+        owner_id = owner_payload.get("sub")
+
+    parcel_doc = {"owner_id": owner_id, "owner_email": owner_email,
         "tracking_id": tracking_id,
         "sender_name": parcel_data.get("sender_name", "John Doe"),
         "sender_phone": parcel_data.get("sender_phone", "+91 98765 43210"),
@@ -128,32 +135,55 @@ def create_parcel(parcel_data: Dict[str, Any]) -> str:
     
     return tracking_id
 
-def advance_tracking_stage(tracking_id: str) -> Optional[int]:
+def advance_tracking_stage(
+    tracking_id: str,
+    user_payload: Dict[str, Any] | None = None,
+) -> Optional[int]:
     parcels_col = db_service.get_collection("parcels")
+
     parcel = parcels_col.find_one({"tracking_id": tracking_id})
     if not parcel:
         return None
-    
+
+    # Ownership check (if JWT payload is provided)
+    if user_payload is not None:
+        expected_email = user_payload.get("sub")
+        actual_email = parcel.get("owner_email")
+        if expected_email and actual_email and actual_email != expected_email:
+            return None
+
     current_override = parcel.get("manual_stage_override")
     if current_override is None:
         # We start overrides from stage 2 (since stage 1 is Booked)
         next_stage = 2
     else:
         next_stage = min(7, int(current_override) + 1)
-        
+
     parcels_col.update_one(
         {"tracking_id": tracking_id},
-        {"$set": {"manual_stage_override": next_stage}}
+        {"$set": {"manual_stage_override": next_stage}},
     )
     return next_stage
 
-def get_tracking_info(tracking_id: str) -> Optional[Dict[str, Any]]:
+
+def get_tracking_info(
+    tracking_id: str,
+    user_payload: Dict[str, Any] | None = None,
+) -> Optional[Dict[str, Any]]:
     parcels_col = db_service.get_collection("parcels")
     parcel = parcels_col.find_one({"tracking_id": tracking_id})
     if not parcel:
         return None
-        
+
+    # Ownership check (if JWT payload is provided)
+    if user_payload is not None:
+        expected_email = user_payload.get("sub")
+        actual_email = parcel.get("owner_email")
+        if expected_email and actual_email and actual_email != expected_email:
+            return None
+
     created_at = parcel["created_at"]
+
     # Ensure timezone aware comparison
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=datetime.timezone.utc)

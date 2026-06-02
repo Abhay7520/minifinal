@@ -42,6 +42,14 @@ export function bookParcel(payload: ParcelBookingInput): Promise<BookingResponse
   return apiPost<BookingResponse>("/parcels", payload);
 }
 
-export function getAllParcels(): Promise<any[]> {
-  return apiGet<any[]>("/parcels");
+export interface ParcelSummary {
+  tracking_id: string;
+  owner_email?: string | null;
+  created_at?: string;
 }
+
+export function getMyParcels(): Promise<ParcelSummary[]> {
+  return apiGet<ParcelSummary[]>("/me/parcels");
+}
+
+

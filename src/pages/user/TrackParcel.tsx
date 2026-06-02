@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import LeafletMap from "@/components/LeafletMap";
 import { getTrackingInfo, advanceTrackingStage } from "@/services/trackingService";
+
 import { toast } from "sonner";
 
 import {
@@ -41,7 +42,34 @@ const TrackParcel = () => {
   const idParam = searchParams.get("id") || "";
   
   const [trackingId, setTrackingId] = useState(idParam || "AIP202601");
-  const [trackingData, setTrackingData] = useState<any>(null);
+  type TrackingData = {
+    tracking_id: string;
+    current_status: string;
+    progress_percentage: number;
+    current_location: string;
+    current_lat: number;
+    current_lng: number;
+    estimated_delivery: string;
+    timeline: Array<{ status: string; time: string; location: string; details: string; done: boolean; predicted: boolean }>; 
+    risk_info: { risk_level: string; risk_score: number; risk_factors: string[]; recommendation: string };
+    parcel_details: {
+      source_address: string;
+      destination_address: string;
+      sender_name: string;
+      receiver_name: string;
+      weight: number;
+      parcel_type: string;
+      price_total: number;
+      source_lat: number;
+      source_lng: number;
+      dest_lat: number;
+      dest_lng: number;
+      route_coordinates: number[][];
+    };
+  };
+
+  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
@@ -50,8 +78,10 @@ const TrackParcel = () => {
     if (!quiet) setLoading(true);
     try {
       const data = await getTrackingInfo(id);
-      setTrackingData(data);
-    } catch (err: any) {
+    setTrackingData(data);
+    } catch (err) {
+      const anyErr = err as unknown as { message?: string };
+
       console.error(err);
       if (!quiet) {
         toast.error(err?.message || "Tracking ID not found in database.");
@@ -94,7 +124,7 @@ const TrackParcel = () => {
       await advanceTrackingStage(trackingId);
       toast.success("Cargo simulation advanced to next stage!");
       fetchTracking(trackingId);
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.message || "Failed to advance simulation stage.");
     } finally {
       setIsAdvancing(false);
@@ -306,7 +336,7 @@ const TrackParcel = () => {
                 </h3>
 
                 <div className="space-y-1">
-                  {trackingData.timeline.map((m: any, i: number) => {
+                  {trackingData.timeline.map((m, i) => {
                     const MilestoneIcon = getMilestoneIcon(m.status);
                     
                     return (

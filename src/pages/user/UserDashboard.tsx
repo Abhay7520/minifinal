@@ -7,7 +7,15 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, BarChart, Bar } from "recharts";
-import { getAllParcels } from "@/services/parcelService";
+import { getMyParcels } from "@/services/parcelService";
+
+type ParcelLike = {
+  tracking_id: string;
+  status: string;
+  destination_address: string;
+  transit_days: string;
+};
+
 
 const initialStats = [
   { label: "Active Parcels", value: "3", icon: Package, color: "text-orange-400", bg: "from-orange-500/20 to-orange-500/5", border: "border-orange-500/20", trend: "+1 this week", trendUp: true },
@@ -45,7 +53,7 @@ const quickInsights = [
   { label: "Next Delivery", value: "Feb 27", sub: "AP-20260001 to Mumbai", icon: Calendar, color: "text-orange-400" },
 ];
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
   if (active && payload?.length) {
     return (
       <div className="rounded-lg border border-white/10 bg-[#12121a] px-3 py-2 text-xs text-white shadow-lg">
@@ -87,11 +95,12 @@ const UserDashboard = () => {
   }, []);
   // ─────────────────────────────────────────────────────────────────
 
-  const [parcels, setParcels] = useState<any[]>([]);
+  const [parcels, setParcels] = useState<ParcelLike[]>([]);
   const [stats, setStats] = useState(initialStats);
-  const [recent, setRecent] = useState<any[]>([]);
-  const [activeParcelForTimeline, setActiveParcelForTimeline] = useState<any | null>(null);
+  const [recent, setRecent] = useState<Array<{ id: string; dest: string; status: string; eta: string; risk: string; progress: number }>>([]);
+  const [activeParcelForTimeline, setActiveParcelForTimeline] = useState<ParcelLike | null>(null);
   const [loading, setLoading] = useState(true);
+
 
   const getStageIndex = (status: string) => {
     const stages = ["Parcel Booked", "Picked Up", "At Source Post Office", "In Transit", "At Sorting Hub", "Out for Delivery", "Delivered"];

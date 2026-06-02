@@ -61,21 +61,29 @@ export async function apiGet<T>(path: string, params?: Record<string, string | n
     });
   }
 
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const response = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
+
   return parseResponse<T>(response);
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
   const response = await fetch(getApiUrl(path), {
     method: "POST",
     headers: {
-      "Accept": "application/json",
+      Accept: "application/json",
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
   });
-  
+
   return parseResponse<T>(response);
 }

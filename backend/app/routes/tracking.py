@@ -1,9 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any
-from app.services.tracking_service import create_parcel, get_tracking_info, advance_tracking_stage, get_all_parcels
+from typing import List, Optional, Any, Dict
 
-router = APIRouter(tags=["Tracking & Booking"])
+from app.services.tracking_service import (
+    create_parcel,
+    get_tracking_info,
+    advance_tracking_stage,
+    get_all_parcels,
+)
+from app.utils.jwt_auth import get_current_user_payload
+
+router = APIRRouter(tags=["Tracking & Booking"])
 
 class ParcelBookingRequest(BaseModel):
     sender_name: str = Field(..., min_length=1)
@@ -83,30 +90,53 @@ class TrackingResponse(BaseModel):
     parcel_details: ParcelDetails
 
 @router.post("/parcels", response_model=BookingResponse)
-def book_parcel_endpoint(payload: ParcelBookingRequest):
+def book_parcel_endpoint(
+    payload: ParcelBookingRequest,
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+):
     try:
-        tracking_id = create_parcel(payload.model_dump())
+        tracking_id = create_parcel(payload.model_dump(), owner_payload=user_payload)
         return BookingResponse(tracking_id=tracking_id, message="Parcel booked successfully in MongoDB")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Booking failed: {str(e)}")
 
-@router.get("/parcels")
-def list_parcels_endpoint():
+
+@router.get("/me/parcels")
+def list_my_parcels_endpoint(
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+):
+    # Ownership-filtered parcel list for the logged-in user.
+    # (Backward-compat public /parcels is intentionally not used for user dashboards.)
     try:
-        return get_all_parcels()
+        email = user_payload.get("sub")
+        parcels = get_all_parcels()
+        if email:
+            return [p for p in parcels if p.get("owner_email") == email]
+        return []
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/tracking/{tracking_id}", response_model=TrackingResponse)
-def get_tracking_endpoint(tracking_id: str):
-    info = get_tracking_info(tracking_id)
+
+
+@router.get("/me/tracking/{tracking_id}", response_model=TrackingResponse)
+def get_my_tracking_endpoint(
+    tracking_id: str,
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+):
+    info = get_tracking_info(tracking_id, user_payload=user_payload)
     if not info:
         raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
     return TrackingResponse(**info)
 
+
+
 @router.post("/tracking/{tracking_id}/advance")
-def advance_tracking_endpoint(tracking_id: str):
-    next_stage = advance_tracking_stage(tracking_id)
+def advance_tracking_endpoint(
+    tracking_id: str,
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+):
+    next_stage = advance_tracking_stage(tracking_id, user_payload=user_payload)
     if next_stage is None:
         raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
     return {"message": f"Parcel advanced to stage {next_stage}", "stage": next_stage}
+
