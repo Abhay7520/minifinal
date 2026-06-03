@@ -46,6 +46,10 @@ export interface ParcelSummary {
   tracking_id: string;
   owner_email?: string | null;
   created_at?: string;
+  sender_name?: string;
+  receiver_name?: string;
+  source_address?: string;
+  destination_address?: string;
 }
 
 export function getMyParcels(): Promise<ParcelSummary[]> {

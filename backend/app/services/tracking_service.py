@@ -209,6 +209,29 @@ def advance_tracking_stage(
         {"$set": {"manual_stage_override": next_stage, "eta": new_eta}},
     )
 
+    # Insert milestone into tracking history directly
+    tracking_history_col = db_service.get_collection("tracking_history")
+    stage_idx = next_stage - 1
+    if 0 <= stage_idx < len(TRACKING_STAGES):
+        stage_info = TRACKING_STAGES[stage_idx]
+        exists = tracking_history_col.find_one({"tracking_id": tracking_id, "status": stage_info["status"]})
+        if not exists:
+            stage_loc = parcel.get("source_po", "Source PO")
+            if stage_idx == 4:
+                stage_loc = f"{parcel.get('dest_po', 'Destination PO').split()[0]} Sorting Hub"
+            elif stage_idx == 5:
+                stage_loc = parcel.get("dest_po", "Destination PO")
+            elif stage_idx == 6:
+                stage_loc = "Recipient's Doorstep"
+                
+            tracking_history_col.insert_one({
+                "tracking_id": tracking_id,
+                "status": stage_info["status"],
+                "timestamp": now,
+                "location": stage_loc,
+                "details": stage_info["desc"]
+            })
+
     if next_stage == 6:
         from app.services.otp_service import generate_otp
         delivery_otp = generate_otp(tracking_id, "delivery")
@@ -255,22 +278,22 @@ def get_tracking_info(
         created_at = created_at.replace(tzinfo=datetime.timezone.utc)
     
     now = datetime.datetime.now(datetime.timezone.utc)
-    elapsed_seconds = (now - created_at).total_seconds()
     
-    # Calculate simulated stage index (0 to 6) based on elapsed time
-    simulated_stage_index = int(elapsed_seconds // STAGE_DURATION_SECONDS)
-    simulated_stage_index = min(6, simulated_stage_index) # max is Delivered (index 6)
-    
-    # Check if manual override exists and is higher
+    # Check manual override (disable time-based auto-progress)
     manual_override = parcel.get("manual_stage_override")
+    is_failed = (manual_override == -1)
+    
     if manual_override is not None:
-        # manual_override is 1-indexed (1 to 7)
-        override_idx = int(manual_override) - 1
-        current_stage_idx = max(simulated_stage_index, override_idx)
+        if is_failed:
+            current_stage_idx = 3  # In Transit (index 3) when failed
+        else:
+            current_stage_idx = int(manual_override) - 1
     else:
-        current_stage_idx = simulated_stage_index
+        current_stage_idx = 0  # Default to Stage 1 (index 0, i.e., "Parcel Booked")
         
     current_stage = TRACKING_STAGES[current_stage_idx]
+    current_status = "Delivery Failed" if is_failed else current_stage["status"]
+    current_progress = 55 if is_failed else current_stage["progress"]
 
     # Calculate latest ETA based on current status/override and update MongoDB
     duration_hours = float(parcel.get("duration_hours", 2.0))
@@ -278,7 +301,7 @@ def get_tracking_info(
         calculated_eta = now.strftime("%Y-%m-%d")
     elif current_stage_idx == 5: # Out for Delivery
         calculated_eta = now.strftime("%Y-%m-%d")
-    elif manual_override == -1: # Failed
+    elif is_failed: # Failed
         calculated_eta = (created_at + datetime.timedelta(hours=duration_hours + 24.0)).strftime("%Y-%m-%d")
     else:
         calculated_eta = (created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
@@ -309,8 +332,8 @@ def get_tracking_info(
         current_loc_name = parcel["source_po"]
     elif current_stage_idx == 3: # In Transit
         # Moving along route coordinate points
-        # Calculate moving marker position
-        time_fraction = (elapsed_seconds % STAGE_DURATION_SECONDS) / STAGE_DURATION_SECONDS
+        # Calculate moving marker position using static 0.5 fraction (auto-progression disabled)
+        time_fraction = 0.5
         coord_idx = int(time_fraction * len(route_coords))
         coord_idx = min(len(route_coords) - 1, max(0, coord_idx))
         current_lat, current_lng = route_coords[coord_idx]
@@ -332,8 +355,8 @@ def get_tracking_info(
     shipment_status_col.update_one(
         {"tracking_id": tracking_id},
         {"$set": {
-            "status": current_stage["status"],
-            "progress_percentage": current_stage["progress"],
+            "status": current_status,
+            "progress_percentage": current_progress,
             "current_location_name": current_loc_name,
             "current_location_lat": current_lat,
             "current_location_lng": current_lng,
@@ -342,34 +365,9 @@ def get_tracking_info(
         upsert=True
     )
     
-    # Save newly reached milestones to tracking_history in MongoDB
+    # We no longer automatically populate tracking_history with simulated timestamps in a loop.
+    # History milestones are now recorded directly inside advance_tracking_stage.
     tracking_history_col = db_service.get_collection("tracking_history")
-    for idx in range(current_stage_idx + 1):
-        stage_info = TRACKING_STAGES[idx]
-        # Check if already saved in history
-        exists = tracking_history_col.find_one({"tracking_id": tracking_id, "status": stage_info["status"]})
-        if not exists:
-            # Simulate historical time for previous stages
-            stage_time = created_at + datetime.timedelta(seconds=idx * STAGE_DURATION_SECONDS)
-            # Cap at current time
-            if stage_time > now:
-                stage_time = now
-            
-            stage_loc = parcel["source_po"]
-            if idx == 4:
-                stage_loc = f"{parcel['dest_po'].split()[0]} Sorting Hub"
-            elif idx == 5:
-                stage_loc = parcel["dest_po"]
-            elif idx == 6:
-                stage_loc = "Recipient's Doorstep"
-                
-            tracking_history_col.insert_one({
-                "tracking_id": tracking_id,
-                "status": stage_info["status"],
-                "timestamp": stage_time,
-                "location": stage_loc,
-                "details": stage_info["desc"]
-            })
             
     # Fetch all history from MongoDB
     history_cursor = tracking_history_col.find({"tracking_id": tracking_id}).sort("timestamp", 1)
@@ -383,7 +381,7 @@ def get_tracking_info(
         completed_statuses.add(h["status"])
         timeline.append({
             "status": h["status"],
-            "time": h["timestamp"].strftime("%Y-%m-%d %H:%M"),
+            "time": h["timestamp"].strftime("%d %b %Y, %I:%M %p"),
             "location": h["location"],
             "details": h["details"],
             "done": True,
@@ -391,18 +389,23 @@ def get_tracking_info(
         })
         
     # 2. Add future predicted stages
-    # Estimated arrival time based on calculated_eta
+    # Estimated arrival time based on calculated_eta (set default delivery time to 18:00)
     try:
-        predicted_arrival = datetime.datetime.strptime(calculated_eta, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+        predicted_arrival = datetime.datetime.strptime(calculated_eta, "%Y-%m-%d").replace(hour=18, minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc)
     except Exception:
         predicted_arrival = created_at + datetime.timedelta(hours=parcel.get("duration_hours", 2.0))
+        predicted_arrival = predicted_arrival.replace(hour=18, minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc)
+        
+    num_remaining = 6 - current_stage_idx
+    time_to_arrival = predicted_arrival - now
+    
     for idx, stage_info in enumerate(TRACKING_STAGES):
         if stage_info["status"] not in completed_statuses:
-            # Calculate a mock prediction time based on remaining duration
-            fraction = idx / 6.0
-            predicted_time = created_at + datetime.timedelta(hours=parcel["duration_hours"] * fraction)
-            if predicted_time < now:
-                predicted_time = now + datetime.timedelta(minutes=15 * (idx - current_stage_idx))
+            if num_remaining > 0 and time_to_arrival.total_seconds() > 0:
+                fraction = (idx - current_stage_idx) / num_remaining
+                predicted_time = now + datetime.timedelta(seconds=time_to_arrival.total_seconds() * fraction)
+            else:
+                predicted_time = now + datetime.timedelta(minutes=30 * (idx - current_stage_idx))
                 
             stage_loc = parcel["source_po"]
             if idx == 4:
@@ -414,7 +417,7 @@ def get_tracking_info(
 
             timeline.append({
                 "status": stage_info["status"],
-                "time": f"Predicted: {predicted_time.strftime('%Y-%m-%d %H:%M')}",
+                "time": f"Predicted: {predicted_time.strftime('%d %b %Y, %I:%M %p')}",
                 "location": stage_loc,
                 "details": stage_info["desc"],
                 "done": False,
@@ -431,15 +434,15 @@ def get_tracking_info(
         "recommendation": risk["recommendation"] if risk else "No special handling required"
     }
 
-    # Format estimated delivery
-    est_delivery_date = predicted_arrival.strftime("%Y-%m-%d")
+    # Format estimated delivery (Clean formatted timestamp with 18:00 delivery hour)
+    est_delivery_date = predicted_arrival.strftime("%d %b %Y, %I:%M %p")
 
     # AI Delay Detection Check
     # Condition: Current Date > ETA AND Status != Delivered
     active_anomaly_doc = None
-    if current_stage["status"] != "Delivered":
+    if current_status != "Delivered":
         current_date_str = now.strftime("%Y-%m-%d")
-        if current_date_str > est_delivery_date:
+        if current_date_str > calculated_eta:
             anomalies_col = db_service.get_collection("anomalies")
             existing_anomaly = anomalies_col.find_one({"tracking_id": tracking_id, "resolved": False})
             if existing_anomaly:
@@ -466,7 +469,7 @@ def get_tracking_info(
                     "user_email": parcel.get("owner_email"),
                     "tracking_id": tracking_id,
                     "title": "Shipment Delay Alert",
-                    "message": f"Parcel {tracking_id} has exceeded its estimated delivery date ({est_delivery_date}). AI models predict a delivery delay.",
+                    "message": f"Parcel {tracking_id} has exceeded its estimated delivery date ({calculated_eta}). AI models predict a delivery delay.",
                     "type": "delay_anomaly",
                     "created_at": now,
                     "read": False
@@ -521,8 +524,8 @@ def get_tracking_info(
 
     return {
         "tracking_id": tracking_id,
-        "current_status": current_stage["status"],
-        "progress_percentage": current_stage["progress"],
+        "current_status": current_status,
+        "progress_percentage": current_progress,
         "current_location": current_loc_name,
         "current_lat": current_lat,
         "current_lng": current_lng,
@@ -556,11 +559,17 @@ def _derive_parcel_status(current_status: str, estimated_delivery_str: str, deli
 
     # delayed if ETA date is in the past (and not delivered)
     try:
-        eta_date = datetime.datetime.strptime(estimated_delivery_str, "%Y-%m-%d").date()
+        # Try new format first
+        eta_date = datetime.datetime.strptime(estimated_delivery_str, "%d %b %Y, %I:%M %p").date()
         if eta_date < datetime.datetime.now(datetime.timezone.utc).date():
             return "Delayed"
     except Exception:
-        pass
+        try:
+            eta_date = datetime.datetime.strptime(estimated_delivery_str, "%Y-%m-%d").date()
+            if eta_date < datetime.datetime.now(datetime.timezone.utc).date():
+                return "Delayed"
+        except Exception:
+            pass
 
     # everything else is active
     return "Active"
@@ -633,6 +642,10 @@ def get_me_parcels_enriched(user_payload: Dict[str, Any]) -> List[Dict[str, Any]
             "estimated_delivery": eta_value,
             "parcel_type": p.get("parcel_type", "standard"),
             "delivery_date": delivered_date,
+            "sender_name": p.get("sender_name", ""),
+            "receiver_name": p.get("receiver_name", ""),
+            "source_address": p.get("source_address", ""),
+            "destination_address": p.get("destination_address", ""),
         })
 
     # sort newest first

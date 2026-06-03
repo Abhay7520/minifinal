@@ -77,7 +77,13 @@ type TrackingData = {
   };
 };
 
-type UserParcelId = { tracking_id: string };
+type UserParcelId = {
+  tracking_id: string;
+  sender_name?: string;
+  receiver_name?: string;
+  source_address?: string;
+  destination_address?: string;
+};
 
 export default function TrackParcel() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -85,6 +91,7 @@ export default function TrackParcel() {
 
   const [availableIds, setAvailableIds] = useState<UserParcelId[]>([]);
   const [trackingId, setTrackingId] = useState(idParam);
+  const [searchInput, setSearchInput] = useState(idParam);
 
   const [trackingData, setTrackingData] = useState<TrackingResponse | null>(null);
 
@@ -116,7 +123,13 @@ export default function TrackParcel() {
     setAvailableIds([]);
     try {
       const res = await getMyParcels();
-      setAvailableIds((res || []).map((p) => ({ tracking_id: p.tracking_id })));
+      setAvailableIds((res || []).map((p) => ({
+        tracking_id: p.tracking_id,
+        sender_name: p.sender_name,
+        receiver_name: p.receiver_name,
+        source_address: p.source_address,
+        destination_address: p.destination_address,
+      })));
     } catch (err) {
       console.error(err);
       toast.error("Failed to load your parcels.");
@@ -128,12 +141,14 @@ export default function TrackParcel() {
     if (!idParam) {
       setTrackingId("");
       setTrackingData(null);
+      setSearchInput("");
       fetchAvailableParcels();
       return;
     }
 
     // 2) If ?id is present, show tracking.
     setTrackingId(idParam);
+    setSearchInput(idParam);
     fetchTracking(idParam);
   }, [idParam]);
 
@@ -204,13 +219,59 @@ export default function TrackParcel() {
         <p className="mt-1 text-white/50">Real-time tracking & delivery intelligence</p>
       </div>
 
+      {/* Global Search Bar */}
+      <div className="mb-6 max-w-xl flex flex-col gap-2">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (searchInput.trim()) {
+              handleSelectId(searchInput.trim());
+            }
+          }}
+          className="flex gap-2"
+        >
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40 z-10" />
+            <input
+              type="text"
+              placeholder="Enter Tracking ID (e.g. AIP123456)"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:border-orange-500/50 focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-all"
+            />
+          </div>
+          <Button
+            type="submit"
+            className="bg-gradient-to-r from-orange-500 to-violet-600 text-white rounded-xl px-6 hover:opacity-90 transition-all font-semibold"
+          >
+            Track
+          </Button>
+        </form>
+
+        {idParam && (
+          <div className="flex justify-start">
+            <button
+              onClick={() => {
+                setSearchParams({});
+                setTrackingId("");
+                setTrackingData(null);
+                setSearchInput("");
+              }}
+              className="text-xs font-semibold text-orange-400 hover:text-orange-300 transition-colors flex items-center gap-1 mt-1 pl-1"
+            >
+              ← Back to Parcels List
+            </button>
+          </div>
+        )}
+      </div>
+
       {!idParam ? (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm"
         >
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-4">
             <Search className="h-5 w-5 text-orange-400" />
             <h2 className="font-display text-lg font-semibold text-white">Select a parcel to track</h2>
           </div>
@@ -222,18 +283,21 @@ export default function TrackParcel() {
               <p className="text-sm text-white/20 mt-1">Book a new parcel to start tracking.</p>
             </div>
           ) : (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {availableIds.map((p) => (
-                <Button
-                  key={p.tracking_id}
-                  variant="outline"
-                  onClick={() => handleSelectId(p.tracking_id)}
-                  className="justify-start border-white/10 bg-white/5 text-white hover:bg-white/10"
-                >
-                  <Package className="mr-2 h-4 w-4 text-orange-400" />
-                  {p.tracking_id}
-                </Button>
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {availableIds.map((p) => {
+                return (
+                  <button
+                    key={p.tracking_id}
+                    onClick={() => handleSelectId(p.tracking_id)}
+                    className="flex items-center justify-between p-4 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-orange-500/30 transition-all group w-full"
+                  >
+                    <span className="text-sm font-bold uppercase tracking-wider text-orange-400 group-hover:text-orange-300 transition-colors">
+                      {p.tracking_id}
+                    </span>
+                    <Package className="h-4.5 w-4.5 text-white/30 group-hover:text-orange-400 transition-colors" />
+                  </button>
+                );
+              })}
             </div>
           )}
         </motion.div>
@@ -285,10 +349,23 @@ export default function TrackParcel() {
                 </p>
               </div>
 
-              <div className="w-full sm:w-auto text-left sm:text-right">
-                <p className="text-xs font-black uppercase tracking-widest text-white/40">Estimated Delivery</p>
-                <p className="text-lg font-bold text-white mt-1">{trackingData.estimated_delivery}</p>
-                <p className="text-xs text-orange-400 font-bold">Progress: {trackingData.progress_percentage}%</p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto sm:justify-end">
+                {trackingData.current_status.toLowerCase() !== "delivered" && (
+                  <Button
+                    onClick={handleAdvanceStage}
+                    disabled={isAdvancing}
+                    className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold hover:opacity-90 rounded-xl px-5 h-11 shrink-0 w-full sm:w-auto"
+                  >
+                    <Compass className="mr-2 h-4 w-4" />
+                    Simulate Stage
+                  </Button>
+                )}
+
+                <div className="text-left sm:text-right shrink-0">
+                  <p className="text-xs font-black uppercase tracking-widest text-white/40">Estimated Delivery</p>
+                  <p className="text-lg font-bold text-white mt-1">{trackingData.estimated_delivery}</p>
+                  <p className="text-xs text-orange-400 font-bold">Progress: {trackingData.progress_percentage}%</p>
+                </div>
               </div>
             </div>
 
@@ -318,13 +395,13 @@ export default function TrackParcel() {
                   <div className="py-3 flex flex-col gap-0.5">
                     <span className="text-white/40 text-xs">Sender / From</span>
                     <span className="font-semibold text-white">{trackingData.parcel_details.sender_name}</span>
-                    <span className="text-xs text-white/50 line-clamp-2">{trackingData.parcel_details.source_address}</span>
+                    <span className="text-xs text-white/50 line-clamp-2" title={trackingData.parcel_details.source_address}>{trackingData.parcel_details.source_address}</span>
                   </div>
 
                   <div className="py-3 flex flex-col gap-0.5">
                     <span className="text-white/40 text-xs">Recipient / To</span>
                     <span className="font-semibold text-white">{trackingData.parcel_details.receiver_name}</span>
-                    <span className="text-xs text-white/50 line-clamp-2">{trackingData.parcel_details.destination_address}</span>
+                    <span className="text-xs text-white/50 line-clamp-2" title={trackingData.parcel_details.destination_address}>{trackingData.parcel_details.destination_address}</span>
                   </div>
 
                   <div className="py-3 flex justify-between">
@@ -391,7 +468,7 @@ export default function TrackParcel() {
                 </div>
               </div>
 
-              {trackingData.current_status !== "Delivered" ? (
+              {trackingData.current_status.toLowerCase() !== "delivered" ? (
                 <Button
                   onClick={handleAdvanceStage}
                   disabled={isAdvancing}

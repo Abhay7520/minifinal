@@ -209,7 +209,7 @@ const Register = () => {
             <div>
               <Label htmlFor="name" className="text-sm font-semibold text-white/70">Full Name</Label>
               <div className="relative mt-1.5">
-                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30 z-10" />
                 <Input
                   id="name"
                   placeholder="John Doe"
@@ -223,7 +223,7 @@ const Register = () => {
             <div>
               <Label htmlFor="email" className="text-sm font-semibold text-white/70">Email</Label>
               <div className="relative mt-1.5">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30 z-10" />
                 <Input
                   id="email"
                   type="email"
@@ -238,7 +238,7 @@ const Register = () => {
             <div>
               <Label htmlFor="password" className="text-sm font-semibold text-white/70">Password</Label>
               <div className="relative mt-1.5">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30 z-10" />
                 <Input
                   id="password"
                   type="password"

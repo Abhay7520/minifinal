@@ -101,15 +101,57 @@ const Payment = () => {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm">
-            <h3 className="mb-4 font-display text-lg font-semibold text-white">Order Summary</h3>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span className="text-white/50">From</span><span className="text-white truncate max-w-[120px]">{pendingBooking ? pendingBooking.source_address.split(',')[0] : "Pune, MH"}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">To</span><span className="text-white truncate max-w-[120px]">{pendingBooking ? pendingBooking.destination_address.split(',')[0] : "New Delhi, DL"}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">Weight</span><span className="text-white">{pendingBooking ? `${pendingBooking.weight} kg` : "2.5 kg"}</span></div>
-              <div className="flex justify-between"><span className="text-white/50">Type</span><span className="text-white capitalize">{pendingBooking ? pendingBooking.parcel_type : "Standard"}</span></div>
-              <div className="border-t border-white/[0.08] pt-3 flex justify-between font-semibold text-white">
-                <span>Total</span><span className="text-orange-400">₹{pendingBooking ? pendingBooking.price_total.toLocaleString("en-IN") : "185"}</span>
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm space-y-5">
+            <div>
+              <h3 className="font-display text-lg font-semibold text-white">Order Summary</h3>
+              <p className="text-xs text-white/40 mt-0.5">Please review your shipment details</p>
+            </div>
+            
+            <div className="space-y-3 text-sm divide-y divide-white/[0.05]">
+              <div className="pt-0 pb-3 flex flex-col gap-0.5">
+                <span className="text-white/40 text-xs">From</span>
+                <span className="text-white font-semibold">{pendingBooking ? `${pendingBooking.sender_name} · ${pendingBooking.source_address.split(',')[0]}` : "Rohan Sharma · Pune"}</span>
+              </div>
+              <div className="py-3 flex flex-col gap-0.5">
+                <span className="text-white/40 text-xs">To</span>
+                <span className="text-white font-semibold">{pendingBooking ? `${pendingBooking.receiver_name} · ${pendingBooking.destination_address.split(',')[0]}` : "Priya Mehta · Delhi"}</span>
+              </div>
+              <div className="py-3 flex justify-between">
+                <span className="text-white/50">Weight / Type</span>
+                <span className="text-white font-medium capitalize">
+                  {pendingBooking ? `${pendingBooking.weight} kg · ${pendingBooking.parcel_type}` : "2.5 kg · Standard"}
+                </span>
+              </div>
+            </div>
+
+            <div className="border-t border-white/[0.08] pt-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-white/40 mb-3">Cost Breakdown</p>
+              <div className="space-y-2 text-xs text-white/60">
+                <div className="flex justify-between">
+                  <span>Base Fare</span>
+                  <span>₹{pendingBooking?.price_breakdown?.base_fare ?? 60}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Weight Charge</span>
+                  <span>₹{pendingBooking?.price_breakdown?.weight_charge ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Smart Add-ons</span>
+                  <span>₹{pendingBooking?.price_breakdown?.addons_charge ?? 0}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Insurance</span>
+                  <span>₹{pendingBooking?.price_breakdown?.insurance_charge ?? 0}</span>
+                </div>
+                <div className="flex justify-between text-white/40">
+                  <span>GST (18%)</span>
+                  <span>₹{pendingBooking?.price_breakdown?.gst ?? 0}</span>
+                </div>
+              </div>
+              
+              <div className="border-t border-white/[0.08] mt-4 pt-3 flex justify-between font-bold text-white text-base">
+                <span>Total</span>
+                <span className="text-orange-400">₹{pendingBooking ? pendingBooking.price_total.toLocaleString("en-IN") : "185"}</span>
               </div>
             </div>
           </div>

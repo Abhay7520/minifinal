@@ -357,7 +357,8 @@ router.get("/analytics/stats", async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
       return res.status(200).json({
         totalUsers: 0, totalStaff: 0, totalParcels: 0, activeParcels: 0,
-        deliveredParcels: 0, delayedParcels: 0, revenue: 0, monthlyTrends: []
+        deliveredParcels: 0, delayedParcels: 0, revenue: 0, monthlyTrends: [],
+        weeklyVolume: [], deliveryPerformance: []
       });
     }
     const db = mongoose.connection.db;
@@ -418,6 +419,70 @@ router.get("/analytics/stats", async (req, res) => {
         { name: "Jun", parcels: totalParcels, revenue: revenue }
       );
     }
+
+    // 1. Calculate last 7 days parcel volume dynamically
+    const weeklyVolume = [];
+    const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const endOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+      
+      const dateStr = startOfDay.toISOString().split('T')[0];
+      const count = await db.collection("parcels").countDocuments({
+        $or: [
+          { created_at: { $gte: startOfDay, $lte: endOfDay } },
+          { created_at: dateStr },
+          { created_at: { $regex: dateStr } }
+        ]
+      });
+      
+      weeklyVolume.push({
+        name: daysOfWeek[d.getDay()],
+        parcels: count
+      });
+    }
+
+    // 2. Calculate delivery performance counts dynamically
+    const onTimeCount = await db.collection("parcels").countDocuments({
+      manual_stage_override: 7
+    });
+    
+    const failedCount = await db.collection("parcels").countDocuments({
+      manual_stage_override: -1
+    });
+    
+    const delayedCount = await db.collection("parcels").countDocuments({
+      eta: { $lt: nowStr },
+      manual_stage_override: { $nin: [7, -1] }
+    });
+    
+    const atRiskCount = Math.max(0, activeParcels - delayedCount);
+    
+    let onTimePct = 75;
+    let slightlyDelayedPct = 15;
+    let significantlyDelayedPct = 7;
+    let atRiskPct = 3;
+    
+    if (totalParcels > 0) {
+      onTimePct = Math.round((onTimeCount / totalParcels) * 100);
+      significantlyDelayedPct = Math.round((failedCount / totalParcels) * 100);
+      slightlyDelayedPct = Math.round((delayedCount / totalParcels) * 100);
+      atRiskPct = Math.round((atRiskCount / totalParcels) * 100);
+      
+      const sum = onTimePct + significantlyDelayedPct + slightlyDelayedPct + atRiskPct;
+      if (sum > 0 && sum !== 100) {
+        onTimePct = Math.max(0, onTimePct + (100 - sum));
+      }
+    }
+    
+    const deliveryPerformance = [
+      { name: "On Time", value: onTimePct },
+      { name: "Slightly Delayed", value: slightlyDelayedPct },
+      { name: "Significantly Delayed", value: significantlyDelayedPct },
+      { name: "At Risk", value: atRiskPct }
+    ];
     
     return res.status(200).json({
       totalUsers,
@@ -427,7 +492,9 @@ router.get("/analytics/stats", async (req, res) => {
       deliveredParcels,
       delayedParcels,
       revenue,
-      monthlyTrends
+      monthlyTrends,
+      weeklyVolume,
+      deliveryPerformance
     });
   } catch (error) {
     console.error("Error getting analytics stats:", error);

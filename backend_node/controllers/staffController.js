@@ -792,6 +792,18 @@ router.post("/voice-log", async (req, res) => {
   }
 });
 
+// GET /api/staff/voice-logs
+router.get("/voice-logs", async (req, res) => {
+  try {
+    const agentName = req.query.agent || "Rohan Sharma";
+    const logs = await VoiceLog.find({ agent_id: agentName }).sort({ timestamp: -1 }).limit(10);
+    return res.status(200).json(logs);
+  } catch (error) {
+    console.error("Error fetching voice logs:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // GET /api/staff/analytics
 router.get("/analytics", async (req, res) => {
   try {

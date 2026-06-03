@@ -73,8 +73,61 @@ export function reportIncident(report: IncidentReport): Promise<{ success: boole
   return apiPost<{ success: boolean; message: string }>(`/incidents/report`, report);
 }
 
+export function getVoiceLogs(agentName = "Rohan Sharma"): Promise<any[]> {
+  return apiGet<any[]>(`/staff/voice-logs`, { agent: agentName });
+}
+
 // Logic for optimized route remains locally as it performs calculations
 export async function getOptimizedRoute(agentName = "Rohan Sharma"): Promise<any> {
+  // Let's resolve standard optimized routing sequence
   const stops = await getStaffDeliveries(agentName);
-  // ... (keep your existing calculation logic here)
+  const active = stops.filter(s => s.status === "current" || s.status === "upcoming");
+  
+  // Starting point coords (Pune sorting hub)
+  let currLat = 18.5204;
+  let currLng = 73.8567;
+  
+  const optimized = [];
+  const remaining = [...active];
+  let totalDist = 0;
+  
+  while(remaining.length > 0) {
+    let closestIdx = -1;
+    let minDist = Infinity;
+    
+    for(let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      // Haversine approx
+      const R = 6371;
+      const dLat = ((s.dest_lat - currLat) * Math.PI) / 180;
+      const dLng = ((s.dest_lng - currLng) * Math.PI) / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(currLat*Math.PI/180) * Math.cos(s.dest_lat*Math.PI/180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const dist = R * c;
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = i;
+      }
+    }
+    
+    if (closestIdx !== -1) {
+      const s = remaining.splice(closestIdx, 1)[0];
+      totalDist += minDist;
+      optimized.push(s);
+      currLat = s.dest_lat;
+      currLng = s.dest_lng;
+    }
+  }
+  
+  const polyline: number[][] = [[18.5204, 73.8567]];
+  optimized.forEach(s => {
+    polyline.push([s.dest_lat, s.dest_lng]);
+  });
+  
+  return {
+    optimized_order: optimized,
+    total_distance_km: Number(totalDist.toFixed(2)),
+    duration_text: `${Math.round((totalDist / 50) * 60)} mins`,
+    polyline
+  };
 }

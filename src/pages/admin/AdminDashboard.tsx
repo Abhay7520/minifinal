@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgAdminOverview from "@/assets/bg-admin-overview.png";
+import bgAdminAnalytics from "@/assets/bg-admin-analytics.png";
+import bgDashboard from "@/assets/bg-dashboard.jpg";
+import bgOrders from "@/assets/bg-orders.jpg";
 import {
   Package,
   Truck,
@@ -106,7 +111,36 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+const getAdminBg = (tab: string) => {
+  switch (tab) {
+    case "overview":
+      return bgAdminOverview;
+    case "ml":
+    case "ai":
+    case "incidents":
+      return bgAdminAnalytics;
+    case "map":
+      return bgDashboard;
+    case "users":
+    case "staff":
+    case "parcels":
+    case "hubs":
+      return bgOrders;
+    default:
+      return bgAdminOverview;
+  }
+};
+
 const AdminDashboard = () => {
+  const [adminName, setAdminName] = useState("");
+
+  useEffect(() => {
+    const storedName = localStorage.getItem("userName");
+    if (storedName) {
+      setAdminName(storedName);
+    }
+  }, []);
+
   // Navigation tabs
   const [activeTab, setActiveTab] = useState<
     "overview" | "map" | "ml" | "staff" | "users" | "parcels" | "ai" | "settings" | "hubs" | "incidents" | "track"
@@ -114,6 +148,7 @@ const AdminDashboard = () => {
 
   // Core Data lists
   const [stats, setStats] = useState<any[]>([]);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsStats | null>(null);
   const [systemAlerts, setSystemAlerts] = useState<AdminAlert[]>([]);
   const [predictions, setPredictions] = useState<FailurePrediction[]>([]);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
@@ -232,6 +267,7 @@ const AdminDashboard = () => {
 
       // Fetch dynamic analytics calculated live from MongoDB
       const analyticsStats = await getAnalyticsStats();
+      setAnalyticsData(analyticsStats);
       
       setStats([
         { label: "Total Parcels", value: String(analyticsStats.totalParcels), icon: Package, color: "text-orange-400" },
@@ -543,10 +579,11 @@ const AdminDashboard = () => {
 
   return (
     <DashboardLayout role="admin">
+      <PageBackground image={getAdminBg(activeTab)} variant="drift" />
       <div className="mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-3.5xl font-extrabold text-white tracking-tight">Admin Control Center</h1>
-          <p className="mt-1.5 text-white/50 text-sm">Real-time AI Logistics Core Hub & Configuration Database Monitor</p>
+          <p className="mt-1.5 text-white/50 text-sm">Real-time AI Logistics Core Hub & Configuration Database Monitor · Welcome, {adminName || "Admin"}</p>
         </div>
 
         {/* Tab Controls */}
@@ -634,7 +671,7 @@ const AdminDashboard = () => {
             <div className="lg:col-span-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-md">
               <h3 className="mb-4 font-display text-base font-bold text-white">Weekly Parcel Volume</h3>
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={[
+                <BarChart data={analyticsData?.weeklyVolume && analyticsData.weeklyVolume.length > 0 ? analyticsData.weeklyVolume : [
                   { name: "Mon", parcels: 145 }, { name: "Tue", parcels: 178 },
                   { name: "Wed", parcels: 162 }, { name: "Thu", parcels: 198 },
                   { name: "Fri", parcels: 210 }, { name: "Sat", parcels: 130 },
@@ -654,24 +691,24 @@ const AdminDashboard = () => {
               <div className="h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={[
+                    <Pie data={analyticsData?.deliveryPerformance && analyticsData.deliveryPerformance.length > 0 ? analyticsData.deliveryPerformance : [
                       { name: "On Time", value: 78 }, { name: "Slightly Delayed", value: 14 },
                       { name: "Significantly Delayed", value: 5 }, { name: "At Risk", value: 3 }
                     ]} cx="50%" cy="50%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
-                      {[
+                      {(analyticsData?.deliveryPerformance && analyticsData.deliveryPerformance.length > 0 ? analyticsData.deliveryPerformance : [
                         { name: "On Time", value: 78 }, { name: "Slightly Delayed", value: 14 },
                         { name: "Significantly Delayed", value: 5 }, { name: "At Risk", value: 3 }
-                      ].map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
+                      ]).map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
               <div className="mt-2 flex flex-wrap gap-2.5 justify-center">
-                {[
+                {(analyticsData?.deliveryPerformance && analyticsData.deliveryPerformance.length > 0 ? analyticsData.deliveryPerformance : [
                   { name: "On Time", value: 78 }, { name: "Slightly Delayed", value: 14 },
                   { name: "Significantly Delayed", value: 5 }, { name: "At Risk", value: 3 }
-                ].map((d, i) => (
+                ]).map((d, i) => (
                   <div key={d.name} className="flex items-center gap-1 text-[10px] text-white/50">
                     <div className="h-2 w-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
                     {d.name} ({d.value}%)
@@ -899,7 +936,7 @@ const AdminDashboard = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/[0.02] border border-white/[0.06] p-4 rounded-2xl">
             <h3 className="font-display text-base font-bold text-white">User Accounts Monitor</h3>
             <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 z-10" />
               <input
                 type="text"
                 placeholder="Search accounts by name/email..."
@@ -990,7 +1027,7 @@ const AdminDashboard = () => {
             <h3 className="font-display text-base font-bold text-white shrink-0">Logistics Cargo Registry</h3>
             <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
               <div className="relative flex-1 xl:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 z-10" />
                 <input
                   type="text"
                   placeholder="Search by Tracking ID/sender/receiver..."

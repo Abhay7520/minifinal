@@ -50,7 +50,10 @@ const formatDate = (raw?: string) => {
     : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
 
-const shortAddr = (addr: string) => addr.split(",").slice(0, 2).join(",").trim();
+const shortAddr = (addr?: string) => {
+  if (!addr) return "—";
+  return addr.split(",").slice(0, 2).join(",").trim();
+};
 
 const UserOrders = () => {
   const [orders, setOrders] = useState<Parcel[]>([]);

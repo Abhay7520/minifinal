@@ -89,6 +89,14 @@ export default function UserDashboard() {
   const [weeklyActivity, setWeeklyActivity] = useState<WeeklyActivityPoint[]>([]);
   const [monthlyOverview, setMonthlyOverview] = useState<MonthlyOverviewPoint[]>([]);
   const [recentParcels, setRecentParcels] = useState<any[]>([]);
+  const [userName, setUserName] = useState<string>("");
+
+  useEffect(() => {
+    const storedName = localStorage.getItem("userName");
+    if (storedName) {
+      setUserName(storedName);
+    }
+  }, []);
 
   const greeting = useMemo(() => getGreeting(), []);
 
@@ -150,7 +158,7 @@ export default function UserDashboard() {
                 AI Postal Dashboard
               </span>
             </div>
-            <h1 className="font-display text-3xl font-bold text-white">{greeting} 👋</h1>
+            <h1 className="font-display text-3xl font-bold text-white">{greeting}, {userName || "User"} 👋</h1>
             <p className="mt-1 text-white/50">
               You have <span className="font-semibold text-orange-400">{activeCount}</span> active parcels being tracked.
             </p>
@@ -396,7 +404,7 @@ export default function UserDashboard() {
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs text-white/50 line-clamp-1 max-w-[250px] sm:max-w-[320px]">
-                        {parcel.source_address.split(",")[0]} → {parcel.destination_address.split(",")[0]}
+                        {parcel.source_address ? parcel.source_address.split(",")[0] : "—"} → {parcel.destination_address ? parcel.destination_address.split(",")[0] : "—"}
                       </p>
                     </div>
                   </div>

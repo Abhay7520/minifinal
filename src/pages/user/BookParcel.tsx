@@ -25,6 +25,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Package,
   MapPin,
   ArrowRight,
@@ -46,6 +54,7 @@ import {
   Phone,
   Boxes,
   IndianRupee,
+  Info,
   Lock,
   PenLine,
   Rocket,
@@ -96,13 +105,61 @@ const INSURANCE: Record<InsuranceTier, { label: string; price: number; cover: st
 const TIME_SLOTS = ["Morning", "Afternoon", "Evening", "Anytime"] as const;
 type TimeSlot = (typeof TIME_SLOTS)[number];
 
+const DEFAULT_BOOKING_COMBINATIONS = [
+  {
+    senderName: "Amit Patel",
+    senderPhone: "+91 98765 43210",
+    sourceAddress: "42, MG Road, Pune, Maharashtra - 411001",
+    receiverName: "Neha Sharma",
+    receiverPhone: "+91 91234 56789",
+    destAddress: "15, Connaught Place, New Delhi, Delhi - 110001",
+  },
+  {
+    senderName: "Vikram Rathore",
+    senderPhone: "+91 94215 88910",
+    sourceAddress: "Jayanagar, Bangalore, Karnataka - 560041",
+    receiverName: "Priya Nair",
+    receiverPhone: "+91 90082 11223",
+    destAddress: "Park Street, Kolkata, West Bengal - 700016",
+  },
+  {
+    senderName: "Karan Johar",
+    senderPhone: "+91 98199 44332",
+    sourceAddress: "Banjara Hills, Hyderabad, Telangana - 500034",
+    receiverName: "Ananya Reddy",
+    receiverPhone: "+91 99480 55667",
+    destAddress: "Jubilee Hills, Hyderabad, Telangana - 500033",
+  },
+  {
+    senderName: "Rajesh Khanna",
+    senderPhone: "+91 91122 33445",
+    sourceAddress: "Salt Lake, Kolkata, West Bengal - 700091",
+    receiverName: "Kriti Sanon",
+    receiverPhone: "+91 92233 44556",
+    destAddress: "Adyar, Chennai, Tamil Nadu - 600020",
+  },
+  {
+    senderName: "Suresh Raina",
+    senderPhone: "+91 95566 77889",
+    sourceAddress: "Andheri West, Mumbai, Maharashtra - 400053",
+    receiverName: "Pooja Hegde",
+    receiverPhone: "+91 96677 88990",
+    destAddress: "Sector 22, Noida, Uttar Pradesh - 201301",
+  }
+];
+
 const BookParcel = () => {
+  const defaultCombo = useMemo(() => {
+    const idx = Math.floor(Math.random() * DEFAULT_BOOKING_COMBINATIONS.length);
+    return DEFAULT_BOOKING_COMBINATIONS[idx];
+  }, []);
+
   const [step, setStep] = useState(1);
   const navigate = useNavigate();
 
   // Step 1
-  const [sourceAddress, setSourceAddress] = useState("42, MG Road, Pune, Maharashtra - 411001");
-  const [destAddress, setDestAddress] = useState("15, Connaught Place, New Delhi, Delhi - 110001");
+  const [sourceAddress, setSourceAddress] = useState(defaultCombo.sourceAddress);
+  const [destAddress, setDestAddress] = useState(defaultCombo.destAddress);
   const [sourceSelection, setSourceSelection] = useState<AddressSuggestion | null>(null);
   const [destSelection, setDestSelection] = useState<AddressSuggestion | null>(null);
   const [validationResult, setValidationResult] = useState<ValidateAddressResponse | null>(null);
@@ -133,10 +190,10 @@ const BookParcel = () => {
   const [timeSlot, setTimeSlot] = useState<TimeSlot>("Anytime");
   const [dropInstructions, setDropInstructions] = useState("Leave with security if not home");
   const [insurance, setInsurance] = useState<InsuranceTier>("standard");
-  const [senderName, setSenderName] = useState("Rohan Sharma");
-  const [senderPhone, setSenderPhone] = useState("+91 98765 43210");
-  const [receiverName, setReceiverName] = useState("Priya Mehta");
-  const [receiverPhone, setReceiverPhone] = useState("+91 91234 56789");
+  const [senderName, setSenderName] = useState(defaultCombo.senderName);
+  const [senderPhone, setSenderPhone] = useState(defaultCombo.senderPhone);
+  const [receiverName, setReceiverName] = useState(defaultCombo.receiverName);
+  const [receiverPhone, setReceiverPhone] = useState(defaultCombo.receiverPhone);
 
 
   // Step 4 — ETA / AI Insights
@@ -147,6 +204,7 @@ const BookParcel = () => {
 
   // Step 5
   const [agreed, setAgreed] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
 
   // Centralized Pricing Breakdown State
   const [pricingBreakdown, setPricingBreakdown] = useState<{
@@ -191,15 +249,147 @@ const BookParcel = () => {
     };
   }, [weight, dims, parcelType, activeSmartOptsList, insurance]);
 
-  const volumetric = pricingBreakdown?.volumetric_weight ?? +((dims.l * dims.w * dims.h) / 5000).toFixed(2);
-  const chargeableWeight = pricingBreakdown?.chargeable_weight ?? Math.max(weight, volumetric);
-  const baseFare = pricingBreakdown?.base_fare ?? 60;
-  const weightCharge = pricingBreakdown?.weight_charge ?? 0;
-  const addOnsTotal = pricingBreakdown?.addons_charge ?? 0;
-  const insuranceCharge = pricingBreakdown?.insurance_charge ?? 0;
-  const subtotal = pricingBreakdown?.subtotal ?? 0;
-  const gst = pricingBreakdown?.gst ?? 0;
-  const total = pricingBreakdown?.total ?? 0;
+  // Local calculation fallbacks for instant & offline reactivity
+  const calculatedVolumetric = useMemo(() => +((dims.l * dims.w * dims.h) / 5000).toFixed(2), [dims]);
+  const calculatedChargeableWeight = useMemo(() => Math.max(weight, calculatedVolumetric), [weight, calculatedVolumetric]);
+
+  const localPriceBreakdown = useMemo(() => {
+    const typeMultipliers: Record<string, number> = {
+      standard: 1.0,
+      express: 1.6,
+      sameday: 2.2,
+      fragile: 1.3,
+      document: 0.7,
+    };
+    const multiplier = typeMultipliers[parcelType] ?? 1.0;
+    const base = 60;
+    const weightChg = Math.round(calculatedChargeableWeight * 40 * multiplier);
+
+    const smartOptionsPrices: Record<SmartOptId, number> = {
+      gps: 0,
+      iot: 40,
+      contactless: 0,
+      otp: 0,
+      eco: 15,
+      carbon: 20,
+      signature: 10,
+      priority: 50,
+    };
+    const addons = activeSmartOptsList.reduce(
+      (sum, opt) => sum + (smartOptionsPrices[opt as SmartOptId] ?? 0),
+      0
+    );
+
+    const insurancePrices: Record<InsuranceTier, number> = {
+      basic: 0,
+      standard: 25,
+      premium: 75,
+    };
+    const ins = insurancePrices[insurance] ?? 0;
+
+    const sub = base + weightChg + addons + ins;
+    const gstVal = Math.round(sub * 0.18);
+    const tot = sub + gstVal;
+
+    return {
+      volumetric_weight: calculatedVolumetric,
+      chargeable_weight: calculatedChargeableWeight,
+      base_fare: base,
+      weight_charge: weightChg,
+      addons_charge: addons,
+      insurance_charge: ins,
+      subtotal: sub,
+      gst: gstVal,
+      total: tot,
+    };
+  }, [calculatedVolumetric, calculatedChargeableWeight, parcelType, activeSmartOptsList, insurance]);
+
+  const volumetric = pricingBreakdown?.volumetric_weight ?? localPriceBreakdown.volumetric_weight;
+  const chargeableWeight = pricingBreakdown?.chargeable_weight ?? localPriceBreakdown.chargeable_weight;
+  const baseFare = pricingBreakdown?.base_fare ?? localPriceBreakdown.base_fare;
+  const weightCharge = pricingBreakdown?.weight_charge ?? localPriceBreakdown.weight_charge;
+  const addOnsTotal = pricingBreakdown?.addons_charge ?? localPriceBreakdown.addons_charge;
+  const insuranceCharge = pricingBreakdown?.insurance_charge ?? localPriceBreakdown.insurance_charge;
+  const subtotal = pricingBreakdown?.subtotal ?? localPriceBreakdown.subtotal;
+  const gst = pricingBreakdown?.gst ?? localPriceBreakdown.gst;
+  const total = pricingBreakdown?.total ?? localPriceBreakdown.total;
+
+  // Helper to format hours/days in a user-friendly way
+  const formatDuration = (totalHours: number) => {
+    const roundedHours = Math.round(totalHours);
+    const d = Math.floor(roundedHours / 24);
+    const h = roundedHours % 24;
+    if (d === 0) {
+      return `${h} hr${h !== 1 ? "s" : ""}`;
+    }
+    if (h === 0) {
+      return `${d} day${d !== 1 ? "s" : ""}`;
+    }
+    return `${d} day${d !== 1 ? "s" : ""} · ${h} hr${h !== 1 ? "s" : ""}`;
+  };
+
+  const formatDays = (days: number) => {
+    return formatDuration(days * 24);
+  };
+
+  const formatEtaDate = (type: string) => {
+    const today = new Date();
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    };
+
+    if (type === "sameday") {
+      return `Today (${formatDate(today)})`;
+    }
+    if (type === "express") {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+      return `Tomorrow (${formatDate(tomorrow)})`;
+    }
+    // standard
+    const minDate = new Date(today);
+    minDate.setDate(today.getDate() + 2);
+    const maxDate = new Date(today);
+    maxDate.setDate(today.getDate() + 3);
+    return `${formatDate(minDate)} – ${formatDate(maxDate)} (2–3 days)`;
+  };
+
+  const localEtaRange = useMemo(() => {
+    if (!validationResult) return null;
+    const distance = validationResult.route.distance_km;
+
+    // Multiplier matching backend ml/predict.py: _parcel_type_multiplier
+    const parcelMultipliers: Record<string, number> = {
+      standard: 1.0,
+      express: 0.65,
+      sameday: 0.35,
+      fragile: 1.25,
+      document: 0.9,
+    };
+    const multiplier = parcelMultipliers[parcelType] ?? 1.0;
+
+    // Formula matching _fallback_predict: base_hours = (distance_km / 55.0) * 8
+    const baseHours = (distance / 55.0) * 8;
+    const weightFactor = 1.0 + Math.max(0, weight - 5) * 0.04;
+    let estimatedHours = baseHours * multiplier * weightFactor;
+
+    // Time slot adjustment matching predict_eta: estimated_hours *= slot_adj.get(time_slot, 1.0)
+    const slotAdj: Record<string, number> = { Morning: 0.95, Afternoon: 1.0, Evening: 1.05, Anytime: 1.0 };
+    estimatedHours *= slotAdj[timeSlot] ?? 1.0;
+
+    const estimatedDays = estimatedHours / 24.0;
+    const minDays = Math.max(0.5, +(estimatedDays * 0.85).toFixed(1));
+    const maxDays = Math.max(minDays + 0.5, +(estimatedDays * 1.2).toFixed(1));
+
+    return {
+      minDays,
+      maxDays,
+    };
+  }, [validationResult, weight, parcelType, timeSlot]);
 
   // Trigger AI Category prediction on description change
   const handleDescriptionChange = async (val: string) => {
@@ -386,13 +576,13 @@ const BookParcel = () => {
       toast.error("Addresses must be validated first");
       return;
     }
-    
+
     const weatherOptions = ["Clear", "Rainy", "Foggy", "Stormy"];
-    const simulatedWeather = validationResult.route.distance_km > 500 
-      ? weatherOptions[Math.floor(Math.random() * 4)] 
+    const simulatedWeather = validationResult.route.distance_km > 500
+      ? weatherOptions[Math.floor(Math.random() * 4)]
       : "Clear";
-    const simulatedCongestion = validationResult.route.distance_km > 300 
-      ? ["Low", "Medium", "High"][Math.floor(Math.random() * 3)] 
+    const simulatedCongestion = validationResult.route.distance_km > 300
+      ? ["Low", "Medium", "High"][Math.floor(Math.random() * 3)]
       : "Low";
 
     const activeSmartOpts = Object.keys(smartOpts).filter((k) => smartOpts[k as SmartOptId]);
@@ -404,27 +594,27 @@ const BookParcel = () => {
       source_lat: validationResult.source.lat,
       source_lng: validationResult.source.lng,
       source_po: validationResult.nearest_source_postoffice.name,
-      
+
       receiver_name: receiverName,
       receiver_phone: receiverPhone,
       destination_address: destAddress,
       dest_lat: validationResult.destination.lat,
       dest_lng: validationResult.destination.lng,
       dest_po: validationResult.nearest_destination_postoffice.name,
-      
+
       weight,
       parcel_type: parcelType,
       declared_value: declaredValue,
       category,
       time_slot: timeSlot,
       insurance,
-      
+
       distance_km: validationResult.route.distance_km,
       duration_hours: validationResult.route.duration_hours,
       duration_text: validationResult.route.duration_text,
       transit_days: validationResult.route.transit_days,
       route_coordinates: validationResult.route.coordinates,
-      
+
       price_total: total,
       weather: simulatedWeather,
       congestion: simulatedCongestion,
@@ -435,9 +625,17 @@ const BookParcel = () => {
       final_category: category,
       confidence: aiConfidence,
       dimensions: dims,
-      smart_options: activeSmartOpts
+      smart_options: activeSmartOpts,
+      price_breakdown: {
+        base_fare: baseFare,
+        weight_charge: weightCharge,
+        addons_charge: addOnsTotal,
+        insurance_charge: insuranceCharge,
+        gst: gst,
+        total: total,
+      }
     };
-    
+
     sessionStorage.setItem("pending_booking", JSON.stringify(bookingData));
     navigate("/user/payment");
   };
@@ -472,13 +670,12 @@ const BookParcel = () => {
                 className="flex flex-col items-center gap-1.5"
               >
                 <div
-                  className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm font-black transition-all duration-500 ${
-                    state === "done"
-                      ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-                      : state === "active"
+                  className={`relative flex h-10 w-10 items-center justify-center rounded-full text-sm font-black transition-all duration-500 ${state === "done"
+                    ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                    : state === "active"
                       ? "bg-gradient-to-br from-orange-500 to-amber-400 text-white shadow-lg shadow-orange-500/40"
                       : "bg-white/5 text-white/30 border border-white/10"
-                  }`}
+                    }`}
                 >
                   {state === "done" ? <CheckCircle className="h-5 w-5" /> : i + 1}
                   {state === "active" && (
@@ -486,13 +683,12 @@ const BookParcel = () => {
                   )}
                 </div>
                 <span
-                  className={`text-[11px] font-semibold tracking-wide whitespace-nowrap ${
-                    state === "active"
-                      ? "text-orange-400"
-                      : state === "done"
+                  className={`text-[11px] font-semibold tracking-wide whitespace-nowrap ${state === "active"
+                    ? "text-orange-400"
+                    : state === "done"
                       ? "text-emerald-400"
                       : "text-white/25"
-                  }`}
+                    }`}
                 >
                   {s}
                 </span>
@@ -547,7 +743,7 @@ const BookParcel = () => {
                           </Field>
                           <Field label="Phone">
                             <div className="relative">
-                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/60" />
+                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/60 z-10" />
                               <Input value={senderPhone} onChange={(e) => setSenderPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
                             </div>
                           </Field>
@@ -584,7 +780,7 @@ const BookParcel = () => {
                           </Field>
                           <Field label="Phone">
                             <div className="relative">
-                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400/60" />
+                              <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-violet-400/60 z-10" />
                               <Input value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} className={`pl-10 ${inputCls}`} />
                             </div>
                           </Field>
@@ -632,7 +828,7 @@ const BookParcel = () => {
                                 />
                               </>
                             ) : (
-                          <>
+                              <>
                                 <Brain className="h-4 w-4" /> Validate
                               </>
                             )}
@@ -779,7 +975,7 @@ const BookParcel = () => {
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Weight (kg)">
                       <div className="relative">
-                        <Zap className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/50" />
+                        <Zap className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-orange-400/50 z-10" />
                         <Input
                           type="number"
                           step="0.1"
@@ -799,8 +995,6 @@ const BookParcel = () => {
                             { v: "standard", l: "Standard (2–3 days)" },
                             { v: "express", l: "Express (next-day)" },
                             { v: "sameday", l: "Same-Day" },
-                            { v: "fragile", l: "Fragile Handling" },
-                            { v: "document", l: "Document" },
                           ].map((o) => (
                             <SelectItem key={o.v} value={o.v} className="focus:bg-white/10 focus:text-white">
                               {o.l}
@@ -808,6 +1002,20 @@ const BookParcel = () => {
                           ))}
                         </SelectContent>
                       </Select>
+                      {localEtaRange && (
+                        <div className="mt-2 flex items-center gap-1.5 text-xs text-white/40">
+                          <Clock className="h-3.5 w-3.5 text-orange-400" />
+                          <span>Estimated Delivery: </span>
+                          <span className="font-bold text-white">
+                            {formatEtaDate(parcelType)}
+                          </span>
+                        </div>
+                      )}
+                      {parcelType === "sameday" && validationResult && validationResult.route.distance_km > 1000 && (
+                        <div className="mt-2 text-xs font-semibold text-red-400">
+                          ⚠️ Same-day delivery is not possible for distances greater than 1,000 km (current distance: {Math.round(validationResult.route.distance_km)} km).
+                        </div>
+                      )}
                     </Field>
                   </div>
 
@@ -815,7 +1023,7 @@ const BookParcel = () => {
                     <div className="grid grid-cols-3 gap-3">
                       {(["l", "w", "h"] as const).map((k) => (
                         <div key={k} className="relative">
-                          <Ruler className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                          <Ruler className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30 z-10" />
                           <Input
                             type="number"
                             value={dims[k]}
@@ -839,7 +1047,7 @@ const BookParcel = () => {
 
                   <Field label="Declared Value (₹) · for insurance">
                     <div className="relative">
-                      <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60" />
+                      <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60 z-10" />
                       <Input
                         type="number"
                         value={declaredValue}
@@ -851,7 +1059,7 @@ const BookParcel = () => {
 
                   <Field label="Description">
                     <div className="relative">
-                      <FileText className="absolute left-3.5 top-3.5 h-4 w-4 text-white/30" />
+                      <FileText className="absolute left-3.5 top-3.5 h-4 w-4 text-white/30 z-10" />
                       <Textarea
                         placeholder="Describe what is inside the parcel (e.g. laptop charger, books, clothes)..."
                         className={`pl-10 min-h-[80px] resize-none ${inputCls}`}
@@ -920,7 +1128,11 @@ const BookParcel = () => {
 
                   <NavRow>
                     <BackBtn onClick={() => setStep(1)} />
-                    <Button onClick={goNext} className={primaryBtn}>
+                    <Button
+                      onClick={goNext}
+                      disabled={parcelType === "sameday" && !!validationResult && validationResult.route.distance_km > 1000}
+                      className={primaryBtn}
+                    >
                       Continue <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </NavRow>
@@ -947,17 +1159,15 @@ const BookParcel = () => {
                             key={o.id}
                             type="button"
                             onClick={() => toggleOpt(o.id)}
-                            className={`group text-left rounded-xl border p-4 transition-all ${
-                              on
-                                ? "border-orange-500/50 bg-orange-500/10 shadow-lg shadow-orange-500/10"
-                                : "border-white/[0.07] bg-white/[0.02] hover:border-white/20"
-                            }`}
+                            className={`group text-left rounded-xl border p-4 transition-all ${on
+                              ? "border-orange-500/50 bg-orange-500/10 shadow-lg shadow-orange-500/10"
+                              : "border-white/[0.07] bg-white/[0.02] hover:border-white/20"
+                              }`}
                           >
                             <div className="flex items-start gap-3">
                               <div
-                                className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                                  on ? "bg-gradient-to-br from-orange-500 to-amber-400 text-white" : "bg-white/5 text-white/50"
-                                }`}
+                                className={`flex h-9 w-9 items-center justify-center rounded-lg ${on ? "bg-gradient-to-br from-orange-500 to-amber-400 text-white" : "bg-white/5 text-white/50"
+                                  }`}
                               >
                                 <o.icon className="h-4 w-4" />
                               </div>
@@ -965,9 +1175,8 @@ const BookParcel = () => {
                                 <div className="flex items-center justify-between gap-2">
                                   <p className="text-sm font-bold text-white">{o.label}</p>
                                   <span
-                                    className={`text-[10px] font-black uppercase tracking-widest ${
-                                      o.price === 0 ? "text-emerald-400" : "text-orange-400"
-                                    }`}
+                                    className={`text-[10px] font-black uppercase tracking-widest ${o.price === 0 ? "text-emerald-400" : "text-orange-400"
+                                      }`}
                                   >
                                     {o.price === 0 ? "Free" : `+₹${o.price}`}
                                   </span>
@@ -988,11 +1197,10 @@ const BookParcel = () => {
                         <button
                           key={t}
                           onClick={() => setTimeSlot(t)}
-                          className={`rounded-full border px-4 py-1.5 text-xs font-bold transition-all ${
-                            timeSlot === t
-                              ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
-                              : "border-white/10 bg-white/5 text-white/50 hover:text-white"
-                          }`}
+                          className={`rounded-full border px-4 py-1.5 text-xs font-bold transition-all ${timeSlot === t
+                            ? "border-orange-500/50 bg-orange-500/15 text-orange-300"
+                            : "border-white/10 bg-white/5 text-white/50 hover:text-white"
+                            }`}
                         >
                           {t}
                         </button>
@@ -1019,11 +1227,10 @@ const BookParcel = () => {
                             key={tier}
                             type="button"
                             onClick={() => setInsurance(tier)}
-                            className={`rounded-xl border p-4 text-left transition-all ${
-                              active
-                                ? "border-emerald-500/50 bg-emerald-500/10"
-                                : "border-white/[0.07] bg-white/[0.02] hover:border-white/20"
-                            }`}
+                            className={`rounded-xl border p-4 text-left transition-all ${active
+                              ? "border-emerald-500/50 bg-emerald-500/10"
+                              : "border-white/[0.07] bg-white/[0.02] hover:border-white/20"
+                              }`}
                           >
                             <div className="flex items-center justify-between">
                               <p className="text-sm font-black text-white">{t.label}</p>
@@ -1107,14 +1314,14 @@ const BookParcel = () => {
                         icon={Clock}
                         tint="text-blue-400"
                         title="Estimated Delivery Time"
-                        value={`${etaPrediction.estimated_days} days · ${etaPrediction.estimated_hours} hrs`}
+                        value={formatEtaDate(parcelType)}
                         sub={`Model: ${etaPrediction.model_type.replace(/_/g, " ")} · ${validationResult?.route.distance_km.toLocaleString("en-IN")} km route`}
                       />
                       <InsightCard
                         icon={Route}
                         tint="text-orange-400"
                         title="ETA Range"
-                        value={`${etaPrediction.eta_range.min_days} – ${etaPrediction.eta_range.max_days} days`}
+                        value={parcelType === "sameday" ? "Same-Day (Within 12 hours)" : parcelType === "express" ? "Express (Within 24 hours)" : "Standard (Within 48–72 hours)"}
                         sub={`Window based on ${parcelType} · ${weight} kg · ${timeSlot} slot`}
                       />
                       <InsightCard
@@ -1126,8 +1333,8 @@ const BookParcel = () => {
                           etaPrediction.confidence_score >= 0.8
                             ? "High confidence prediction"
                             : etaPrediction.confidence_score >= 0.65
-                            ? "Moderate confidence — route variables apply"
-                            : "Lower confidence — review risk factors"
+                              ? "Moderate confidence — route variables apply"
+                              : "Lower confidence — review risk factors"
                         }
                       />
                       <InsightCard
@@ -1194,7 +1401,7 @@ const BookParcel = () => {
                   transition={{ duration: 0.35 }}
                   className="space-y-6"
                 >
-                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] overflow-hidden">
+                  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03]">
                     <div className="px-5 py-3 border-b border-white/[0.06] flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-orange-400" />
                       <span className="text-xs font-black uppercase tracking-widest text-white/40">
@@ -1204,20 +1411,27 @@ const BookParcel = () => {
 
                     <div className="p-5 divide-y divide-white/[0.05]">
                       {[
-                        { label: "From", value: "Rohan · Pune, MH", icon: MapPin, color: "text-orange-400" },
-                        { label: "To", value: "Priya · Delhi, DL", icon: MapPin, color: "text-violet-400" },
-                        { label: "Weight", value: `${weight} kg (chargeable ${chargeableWeight} kg)`, icon: Zap, color: "text-amber-400" },
-                        { label: "Dimensions", value: `${dims.l} × ${dims.w} × ${dims.h} cm`, icon: Ruler, color: "text-white/60" },
-                        { label: "Type", value: parcelType.charAt(0).toUpperCase() + parcelType.slice(1), icon: Package, color: "text-blue-400" },
-                        { label: "Category", value: category.charAt(0).toUpperCase() + category.slice(1), icon: Boxes, color: "text-violet-400" },
-                        { label: "Declared Value", value: `₹${declaredValue.toLocaleString("en-IN")}`, icon: IndianRupee, color: "text-emerald-400" },
-                        { label: "Time Slot", value: timeSlot, icon: Clock, color: "text-blue-400" },
-                        { label: "Insurance", value: `${INSURANCE[insurance].label} · ${INSURANCE[insurance].cover}`, icon: Shield, color: "text-emerald-400" },
+                        { label: "From", value: `${senderName}${validationResult ? ` · ${validationResult.source.city}, ${validationResult.source.state}` : ""}`, icon: MapPin, color: "text-orange-400", info: "Sender's name and pickup city. Parcel will be collected from the source address provided in Step 1." },
+                        { label: "To", value: `${receiverName}${validationResult ? ` · ${validationResult.destination.city}, ${validationResult.destination.state}` : ""}`, icon: MapPin, color: "text-violet-400", info: "Recipient's name and delivery city. Package will be delivered to the destination address in Step 1." },
+                        { label: "Weight", value: `${weight} kg (chargeable ${chargeableWeight} kg)`, icon: Zap, color: "text-amber-400", info: "Actual weight vs chargeable weight. Chargeable is the higher of actual weight and volumetric weight (L×W×H ÷ 5000)." },
+                        { label: "Dimensions", value: `${dims.l} × ${dims.w} × ${dims.h} cm`, icon: Ruler, color: "text-white/60", info: "Physical dimensions of your parcel in centimetres (Length × Width × Height). Used to compute volumetric weight." },
+                        { label: "Type", value: parcelType.charAt(0).toUpperCase() + parcelType.slice(1), icon: Package, color: "text-blue-400", info: "Delivery speed tier. Standard = 2–3 days, Express = next day, Same-Day, Fragile = extra care handling, Document = envelope." },
+                        { label: "Category", value: category.charAt(0).toUpperCase() + category.slice(1), icon: Boxes, color: "text-violet-400", info: "Content category detected by AI from your description. Used for compliance checks and to recommend handling instructions." },
+                        { label: "Declared Value", value: `₹${declaredValue.toLocaleString("en-IN")}`, icon: IndianRupee, color: "text-emerald-400", info: "Self-declared monetary value of the parcel contents. This determines the maximum claimable amount under your insurance plan." },
+                        { label: "Time Slot", value: timeSlot, icon: Clock, color: "text-blue-400", info: "Your preferred delivery window. Choosing a specific slot may slightly affect ETA. 'Anytime' gives the delivery agent flexibility." },
+                        { label: "Insurance", value: `${INSURANCE[insurance].label} · ${INSURANCE[insurance].cover}`, icon: Shield, color: "text-emerald-400", info: "Coverage tier for loss or damage. Basic covers up to ₹500, Standard up to ₹5,000, Premium up to ₹50,000 of declared value." },
                       ].map((row) => (
                         <div key={row.label} className="flex items-center justify-between py-3">
                           <div className="flex items-center gap-2.5">
                             <row.icon className={`h-3.5 w-3.5 ${row.color}`} />
                             <span className="text-sm text-white/40">{row.label}</span>
+                            <div className="relative group/info">
+                              <Info className="h-3.5 w-3.5 text-white/20 cursor-pointer hover:text-white/50 transition-colors" />
+                              <div className="absolute bottom-full left-0 mb-2 w-64 rounded-lg border border-white/10 bg-[#1a1a1f] px-3 py-2 text-xs text-white/70 leading-relaxed shadow-xl z-50 pointer-events-none opacity-0 group-hover/info:opacity-100 transition-opacity duration-150">
+                                {row.info}
+                                <div className="absolute top-full left-1.5 border-4 border-transparent border-t-[#1a1a1f]" />
+                              </div>
+                            </div>
                           </div>
                           <span className="text-sm font-bold text-white text-right">{row.value}</span>
                         </div>
@@ -1271,10 +1485,68 @@ const BookParcel = () => {
                       className="mt-0.5 border-white/20 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500"
                     />
                     <span className="text-xs text-white/60 leading-relaxed">
-                      I agree to AIPOSTAL's <span className="text-orange-400 font-bold">Terms & Conditions</span> and
-                      confirm contents are legal, accurately declared, and comply with India Post regulations.
+                      I agree to AIPOSTAL's{" "}
+                      <span
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setTermsOpen(true);
+                        }}
+                        className="text-orange-400 font-bold hover:underline cursor-pointer"
+                      >
+                        Terms & Conditions
+                      </span>{" "}
+                      and confirm contents are legal, accurately declared, and comply with India Post regulations.
                     </span>
                   </label>
+
+                  <Dialog open={termsOpen} onOpenChange={setTermsOpen}>
+                    <DialogContent className="border-white/10 bg-[#111114] text-white rounded-2xl max-w-md">
+                      <DialogHeader>
+                        <DialogTitle className="text-xl font-black text-white flex items-center gap-2">
+                          <Shield className="h-5 w-5 text-orange-400" />
+                          Terms & Conditions
+                        </DialogTitle>
+                        <DialogDescription className="text-white/40 text-xs">
+                          Please read and accept the terms before proceeding.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3.5 my-4 text-xs text-white/70 max-h-[280px] overflow-y-auto pr-1 border border-white/5 rounded-lg p-3 bg-white/[0.02]">
+                        <p className="font-semibold text-white">1. Declaration of Contents</p>
+                        <p className="leading-relaxed">
+                          You certify that all details provided regarding the weight, dimensions, description, and value of the parcel are accurate. Inaccurate declarations may lead to rejection, reassessment of fees, or denial of insurance coverage.
+                        </p>
+                        <p className="font-semibold text-white">2. Restricted and Dangerous Goods</p>
+                        <p className="leading-relaxed">
+                          You confirm that the shipment does not contain any prohibited or hazardous materials, including but not limited to explosives, flammables, corrosives, contraband, illegal narcotics, or items forbidden under the India Post Guidelines.
+                        </p>
+                        <p className="font-semibold text-white">3. Operational & AI Predictions</p>
+                        <p className="leading-relaxed">
+                          AI insights, transit predictions, and cost estimations are generated using ML models and real-time operational data. While highly accurate, they are estimates and do not constitute absolute guarantees of delivery windows.
+                        </p>
+                        <p className="font-semibold text-white">4. Insurance and Claims</p>
+                        <p className="leading-relaxed">
+                          Insurance claims are limited to the declared value and are subject to verification. AIPOSTAL reserves the right to reject claims arising from inadequate packaging or undeclared restricted goods.
+                        </p>
+                        <p className="font-semibold text-white">5. ⚠️ Project Disclaimer</p>
+                        <p className="leading-relaxed">
+                          AI Postal is a student-developed demonstration project created for educational, research, and portfolio purposes. Shipment tracking, AI predictions, OTP workflows, and logistics simulations are intended to showcase technical capabilities and do not represent an official postal or courier service.    
+                          Please review your shipment details carefully before proceeding.
+                        </p>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          onClick={() => {
+                            setAgreed(true);
+                            setTermsOpen(false);
+                          }}
+                          className="w-full bg-gradient-to-r from-orange-500 to-amber-400 text-white font-bold hover:opacity-90 rounded-xl"
+                        >
+                          I Accept & Agree
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
 
                   <NavRow>
                     <BackBtn onClick={() => setStep(4)} />

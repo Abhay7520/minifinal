@@ -103,6 +103,14 @@ export interface AnalyticsStats {
     parcels: number;
     revenue: number;
   }>;
+  weeklyVolume?: Array<{
+    name: string;
+    parcels: number;
+  }>;
+  deliveryPerformance?: Array<{
+    name: string;
+    value: number;
+  }>;
 }
 
 export interface AiMonitoringData {

@@ -10,8 +10,8 @@ import BackButton from "./components/BackButton";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 const Landing = lazy(() => import("./pages/Landing"));
-const Login = lazy(() => import("./pages/Login"));
-const Register = lazy(() => import("./pages/Register"));
+const AuthPage = lazy(() => import("./pages/auth/AuthPage"));
+const AuthRoleSelect = lazy(() => import("./pages/auth/AuthRoleSelect"));
 const UserDashboard = lazy(() => import("./pages/user/UserDashboard"));
 const BookParcel = lazy(() => import("./pages/user/BookParcel"));
 const Payment = lazy(() => import("./pages/user/Payment"));
@@ -21,12 +21,6 @@ const UserOrders = lazy(() => import("./pages/user/UserOrders"));
 const StaffDashboard = lazy(() => import("./pages/staff/StaffDashboard"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const NotFound = lazy(() => import("./pages/NotFound"));
-
-const AuthRedirect = () => {
-  const { role, mode } = useParams();
-  const target = mode === "register" ? "/register" : "/login";
-  return <Navigate to={`${target}?role=${role || "user"}`} replace />;
-};
 
 const queryClient = new QueryClient();
 
@@ -41,14 +35,12 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             
-            {/* Legacy redirects */}
-            <Route path="/auth/select/login" element={<Navigate to="/login" replace />} />
-            <Route path="/auth/select/register" element={<Navigate to="/register" replace />} />
-            <Route path="/auth/:role/:mode" element={<AuthRedirect />} />
-            
-            {/* New unified auth routes */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            {/* Unified premium auth routes */}
+            <Route path="/auth/select/login" element={<AuthRoleSelect mode="login" />} />
+            <Route path="/auth/select/register" element={<AuthRoleSelect mode="register" />} />
+            <Route path="/auth/:role/:mode" element={<AuthPage />} />
+            <Route path="/login" element={<Navigate to="/auth/select/login" replace />} />
+            <Route path="/register" element={<Navigate to="/auth/select/register" replace />} />
             
             {/* User routes */}
             <Route element={<ProtectedRoute allowedRole="user" />}>

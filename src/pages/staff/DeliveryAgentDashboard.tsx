@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
+import PageBackground from "@/components/PageBackground";
+import bgStaffDashboard from "@/assets/bg-staff-dashboard.png";
+import bgStaffVoice from "@/assets/bg-staff-voice.png";
 import {
   Package,
   CheckCircle,
@@ -61,6 +64,7 @@ import {
   logVoiceCommand,
   updateAgentLocation,
   reportIncident,
+  getVoiceLogs,
   DeliveryStop,
   StaffAnalytics,
   PriorityStop,
@@ -75,8 +79,30 @@ declare global {
   }
 }
 
+const getStaffBg = (pathname: string) => {
+  switch (pathname) {
+    case "/staff/dashboard":
+    case "/staff/parcels":
+    case "/staff/update":
+      return bgStaffDashboard;
+    case "/staff/voice":
+    case "/staff/incidents":
+      return bgStaffVoice;
+    default:
+      return bgStaffDashboard;
+  }
+};
+
 const DeliveryAgentDashboard = () => {
   const location = useLocation();
+  const [agentName, setAgentName] = useState("");
+
+  useEffect(() => {
+    const storedName = localStorage.getItem("userName");
+    if (storedName) {
+      setAgentName(storedName);
+    }
+  }, []);
 
   // Core delivery & stats states
   const [stops, setStops] = useState<DeliveryStop[]>([]);
@@ -133,7 +159,7 @@ const DeliveryAgentDashboard = () => {
   const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
 
   // Voice Log List for staff/voice path
-  const [voiceLogsList, setVoiceLogsList] = useState<any[]>([]);
+  const [voiceLogs, setVoiceLogs] = useState<any[]>([]);
 
   // Detect offline / online status
   useEffect(() => {
@@ -252,7 +278,8 @@ const DeliveryAgentDashboard = () => {
     
     const syncLocation = async () => {
       try {
-        await updateAgentLocation("Rohan Sharma", agentCoords[0], agentCoords[1], agentSpeed, batteryLevel);
+        const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+        await updateAgentLocation(currentAgent, agentCoords[0], agentCoords[1], agentSpeed, batteryLevel);
       } catch (e) {
         // ignore background update failures
       }
@@ -261,7 +288,7 @@ const DeliveryAgentDashboard = () => {
     syncLocation();
     const interval = setInterval(syncLocation, 10000);
     return () => clearInterval(interval);
-  }, [agentCoords, agentSpeed, batteryLevel, isOffline]);
+  }, [agentCoords, agentSpeed, batteryLevel, isOffline, agentName]);
 
   // Web Speech API Voice synthesis helper
   const speakFeedback = (text: string) => {
@@ -369,12 +396,24 @@ const DeliveryAgentDashboard = () => {
       
       // Log audit trail to DB
       if (!isOffline) {
-        await logVoiceCommand("Rohan Sharma", command, success);
+        const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+        await logVoiceCommand(currentAgent, command, success);
       }
       
       // Refresh voice logs list if on voice screen
       if (location.pathname === "/staff/voice") {
-        fetchVoiceLogs();
+        if (isOffline) {
+          setVoiceLogs(prev => [
+            {
+              command,
+              timestamp: new Date().toISOString(),
+              success
+            },
+            ...prev
+          ]);
+        } else {
+          fetchVoiceLogs();
+        }
       }
     } catch (err) {
       console.error(err);
@@ -386,32 +425,40 @@ const DeliveryAgentDashboard = () => {
     try {
       if (!quiet) setLoading(true);
       
-      const deliveries = await getStaffDeliveries();
-      const stats = await getStaffAnalytics();
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      
+      const deliveries = await getStaffDeliveries(currentAgent);
+      const stats = await getStaffAnalytics(currentAgent);
       setAnalytics(stats);
 
       if (optimizeRoute) {
-        const optRoute = await getOptimizedRoute();
-        setStops(optRoute.optimized_order);
-        setOptimizedPathCoords(optRoute.polyline);
-        setOptimizedMetrics({
-          distance: optRoute.total_distance_km,
-          duration: optRoute.duration_text
-        });
+        const optRoute = await getOptimizedRoute(currentAgent);
+        if (optRoute && optRoute.optimized_order) {
+          setStops(optRoute.optimized_order);
+          setOptimizedPathCoords(optRoute.polyline || []);
+          setOptimizedMetrics({
+            distance: optRoute.total_distance_km || 0,
+            duration: optRoute.duration_text || "—"
+          });
+        } else {
+          setStops([]);
+          setOptimizedPathCoords([]);
+          setOptimizedMetrics(null);
+        }
       } else {
-        setStops(deliveries);
+        setStops(deliveries || []);
         setOptimizedPathCoords([]);
         setOptimizedMetrics(null);
       }
 
       // Fetch AI priority routes
       const priorities = await getPriorityRoutes(agentCoords[0], agentCoords[1]);
-      setPriorityStops(priorities);
+      setPriorityStops(priorities || []);
 
       // Fetch weather hazard alerts for first active stop.
       // ETA endpoint can legitimately return 404 (parcel not found), which should not
       // break the whole dashboard sync loop.
-      const firstActive = deliveries.find(s => s.status === "current" || s.status === "upcoming");
+      const firstActive = (deliveries || []).find(s => s.status === "current" || s.status === "upcoming");
       if (firstActive) {
         try {
           const weather = await getStopEta(firstActive.id, agentCoords[0], agentCoords[1]);
@@ -452,10 +499,14 @@ const DeliveryAgentDashboard = () => {
 
   const fetchVoiceLogs = async () => {
     try {
-      const res = await getStaffAnalytics();
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await getStaffAnalytics(currentAgent);
       setAnalytics(res);
-      // We can also fetch the database voice logs via standard Node endpoint if desired.
-      // For this, we'll fetch general analytics statistics
+      
+      const logs = await getVoiceLogs(currentAgent);
+      if (Array.isArray(logs)) {
+        setVoiceLogs(logs);
+      }
     } catch (e) {
       // ignore
     }
@@ -507,9 +558,20 @@ const DeliveryAgentDashboard = () => {
     }
 
     try {
-      const res = await verifyDeliveryOtp(trackingId, otpInput);
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await verifyDeliveryOtp(trackingId, otpInput, false, currentAgent);
       if (res.success) {
         toast.success(`Delivery for ${trackingId} verified successfully!`);
+        
+        const stop = stops.find(s => s.id === trackingId);
+        const nextStage = stop?.current_stage === 1 ? 2 : 7;
+        const nextStatus = nextStage === 7 ? "delivered" : "upcoming";
+        const nextProgress = nextStage === 7 ? 100 : 20;
+
+        setStops((prev) =>
+          prev.map((s) => (s.id === trackingId ? { ...s, status: nextStatus, progress: nextProgress, current_stage: nextStage } : s))
+        );
+
         setOtpInput("");
         loadData(true);
       } else {
@@ -529,7 +591,8 @@ const DeliveryAgentDashboard = () => {
     }
     setIsRegenerating(trackingId);
     try {
-      const res = await regenerateOtp(trackingId);
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await regenerateOtp(trackingId, currentAgent);
       if (res.success) {
         toast.success(res.message || "New OTP generated and sent to customer!");
         loadData(true);
@@ -580,7 +643,8 @@ const DeliveryAgentDashboard = () => {
     }
 
     try {
-      const res = await markDeliveryFailed(trackingId, reason);
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await markDeliveryFailed(trackingId, reason, currentAgent);
       if (res.success) {
         toast.warning(`Delivery labeled Failed: ${reason}`);
         setShowFailModal(null);
@@ -594,7 +658,8 @@ const DeliveryAgentDashboard = () => {
   // Handle delivery reattempt
   const handleReattempt = async (trackingId: string) => {
     try {
-      const res = await reattemptDelivery(trackingId);
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await reattemptDelivery(trackingId, currentAgent);
       if (res.success) {
         toast.success(`Delivery reattempt scheduled for ${trackingId}`);
         loadData(true);
@@ -625,7 +690,7 @@ const DeliveryAgentDashboard = () => {
     id: "AGENT-LIVE",
     lat: agentCoords[0],
     lng: agentCoords[1],
-    label: `Rohan Sharma (You) · Speed: ${agentSpeed} km/h · Battery: ${batteryLevel}%`,
+    label: `${localStorage.getItem("userName") || agentName || "Rohan Sharma"} (You) · Speed: ${agentSpeed} km/h · Battery: ${batteryLevel}%`,
     status: "moving"
   });
 
@@ -659,9 +724,10 @@ const DeliveryAgentDashboard = () => {
     
     setIsSubmittingIncident(true);
     try {
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
       const res = await reportIncident({
         tracking_id: incidentForm.tracking_id,
-        agent_id: "Rohan Sharma",
+        agent_id: currentAgent,
         issue_type: incidentForm.issue_type,
         details: incidentForm.details,
         lat: agentCoords[0],
@@ -669,11 +735,9 @@ const DeliveryAgentDashboard = () => {
         image_url: incidentForm.image_url
       });
 
-      if (res.success) {
-        toast.success("Incident logged successfully. Support team has been alerted.");
-        setIncidentForm({ tracking_id: "", issue_type: "vehicle issue", details: "", image_url: "" });
-        fetchIncidents();
-      }
+      toast.success(res.message || "Incident logged successfully. Support team has been alerted.");
+      setIncidentForm({ tracking_id: "", issue_type: "vehicle issue", details: "", image_url: "" });
+      fetchIncidents();
     } catch (err: any) {
       toast.error(err.message || "Failed to log incident");
     } finally {
@@ -683,6 +747,7 @@ const DeliveryAgentDashboard = () => {
 
   return (
     <DashboardLayout role="staff">
+      <PageBackground image={getStaffBg(location.pathname)} variant="drift" />
       {/* 1. Offline Mode Alert Banner */}
       <AnimatePresence>
         {isOffline && (
@@ -739,7 +804,7 @@ const DeliveryAgentDashboard = () => {
              location.pathname === "/staff/update" ? "Secure OTP authorization for pending handovers" :
              location.pathname === "/staff/voice" ? "Control logistics workflow using Web Speech commands" :
              location.pathname === "/staff/incidents" ? "Report vehicle, address, or conflict situations" :
-             "Staff analytics dashboard & Leaflet mapping system"}
+             "Staff analytics dashboard & Leaflet mapping system"} · Active Agent: {agentName || "Agent"}
           </p>
         </div>
 
@@ -850,29 +915,22 @@ const DeliveryAgentDashboard = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/[0.04] text-white/70">
-                        {analytics.voice_assistant.total_commands === 0 ? (
+                        {voiceLogs.length === 0 ? (
                           <tr>
                             <td colSpan={3} className="py-6 text-center text-white/35 italic">No voice commands recorded today.</td>
                           </tr>
                         ) : (
-                          // Mock local voice logs row insertion for visual presentation
-                          <>
-                            <tr>
-                              <td className="py-3 font-mono text-violet-400">"navigate to next stop"</td>
-                              <td className="py-3 text-white/40">Today, 03:14 PM</td>
-                              <td className="py-3 text-right text-emerald-400 font-bold">Executed</td>
+                          voiceLogs.map((log, idx) => (
+                            <tr key={log._id || idx}>
+                              <td className="py-3 font-mono text-violet-400">"{log.command}"</td>
+                              <td className="py-3 text-white/40">
+                                {log.timestamp ? new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Today"}
+                              </td>
+                              <td className={`py-3 text-right font-bold ${log.success ? "text-emerald-400" : "text-red-400"}`}>
+                                {log.success ? "Executed" : "Unrecognized"}
+                              </td>
                             </tr>
-                            <tr>
-                              <td className="py-3 font-mono text-violet-400">"mark delivered"</td>
-                              <td className="py-3 text-white/40">Today, 02:45 PM</td>
-                              <td className="py-3 text-right text-emerald-400 font-bold">Executed</td>
-                            </tr>
-                            <tr>
-                              <td className="py-3 font-mono text-violet-400">"open helper instructions"</td>
-                              <td className="py-3 text-white/40">Today, 01:20 PM</td>
-                              <td className="py-3 text-right text-white/35 font-bold">Unrecognized</td>
-                            </tr>
-                          </>
+                          ))
                         )}
                       </tbody>
                     </table>

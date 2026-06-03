@@ -197,7 +197,7 @@ const Login = () => {
             <div>
               <Label htmlFor="email" className="text-sm font-semibold text-white/70">Email</Label>
               <div className="relative mt-1.5">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30 z-10" />
                 <Input
                   id="email"
                   type="email"
@@ -215,7 +215,7 @@ const Login = () => {
                 <span className="text-xs text-white/30 hover:text-white/60 cursor-pointer transition-colors">Forgot password?</span>
               </div>
               <div className="relative mt-1.5">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30 z-10" />
                 <Input
                   id="password"
                   type="password"
