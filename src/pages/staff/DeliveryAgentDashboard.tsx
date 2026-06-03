@@ -52,6 +52,7 @@ import {
   verifyDeliveryOtp,
   markDeliveryFailed,
   reattemptDelivery,
+  regenerateOtp,
   logDeliveryAction,
   getStaffAnalytics,
   getOptimizedRoute,
@@ -95,6 +96,7 @@ const DeliveryAgentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [otpInput, setOtpInput] = useState("");
   const [isVerifying, setIsVerifying] = useState<string | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
   const [showContact, setShowContact] = useState<string | null>(null);
   const [showFailModal, setShowFailModal] = useState<string | null>(null);
   
@@ -517,6 +519,27 @@ const DeliveryAgentDashboard = () => {
       toast.error(err?.message || "Invalid OTP code");
     } finally {
       setIsVerifying(null);
+    }
+  };
+
+  const handleRegenerateOtp = async (trackingId: string) => {
+    if (isOffline) {
+      toast.error("Cannot regenerate OTP in offline mode");
+      return;
+    }
+    setIsRegenerating(trackingId);
+    try {
+      const res = await regenerateOtp(trackingId);
+      if (res.success) {
+        toast.success(res.message || "New OTP generated and sent to customer!");
+        loadData(true);
+      } else {
+        toast.error(res.message || "Failed to regenerate OTP.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error regenerating OTP");
+    } finally {
+      setIsRegenerating(null);
     }
   };
 
@@ -1103,14 +1126,16 @@ const DeliveryAgentDashboard = () => {
                                   {/* Action triggers if stop is current active stop */}
                                   {isCurrent && (
                                     <div className="mt-4 space-y-4 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4 relative">
-                                      <div className="absolute top-3 right-3 text-[10px] text-orange-400 font-bold uppercase tracking-widest animate-pulse">OTP Code Required</div>
+                                      <div className="absolute top-3 right-3 text-[10px] text-orange-400 font-bold uppercase tracking-widest animate-pulse">
+                                        {stop.current_stage === 1 ? "Pickup OTP Required" : stop.current_stage === 6 ? "Delivery OTP Required" : "OTP Code Required"}
+                                      </div>
                                       <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-2 rounded-lg border border-orange-500/30 bg-[#0c0a15] px-3 py-2">
                                           <KeyRound className="h-4 w-4 text-orange-400" />
                                           <input
                                             type="text"
                                             maxLength={4}
-                                            placeholder="OTP Code"
+                                            placeholder={stop.current_stage === 1 ? "Pickup OTP" : stop.current_stage === 6 ? "Delivery OTP" : "OTP Code"}
                                             value={otpInput}
                                             onChange={(e) => setOtpInput(e.target.value)}
                                             className="w-20 bg-transparent text-center font-mono text-sm text-white placeholder:text-white/20 outline-none"
@@ -1124,6 +1149,17 @@ const DeliveryAgentDashboard = () => {
                                           className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold px-4 rounded-lg"
                                         >
                                           {isVerifying === stop.id ? "Confirming..." : "Verify & Complete"}
+                                        </Button>
+
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleRegenerateOtp(stop.id)}
+                                          disabled={isRegenerating === stop.id || isOffline}
+                                          className="border-white/10 bg-white/5 text-orange-400 hover:bg-white/10 rounded-lg flex items-center gap-1.5"
+                                        >
+                                          <RotateCcw className={`h-3.5 w-3.5 ${isRegenerating === stop.id ? "animate-spin" : ""}`} />
+                                          {isRegenerating === stop.id ? "Regenerating..." : "Regenerate OTP"}
                                         </Button>
                                       </div>
 

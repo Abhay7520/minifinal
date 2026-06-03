@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Package, Mail, Lock, User, ArrowRight, Sparkles } from "lucide-react";
+import { Package, Mail, Lock, User, ArrowRight, Sparkles, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +17,40 @@ const Register = () => {
   const navigate = useNavigate();
   const cfg = roleConfig[role];
 
-  const handleRegister = (e: React.FormEvent) => {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate(`/${role}/dashboard`);
+    setError("");
+
+    if (!name.trim()) {
+      setError("Full Name is required");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long");
+      return;
+    }
+
+    try {
+      const { apiPost } = await import("@/lib/api");
+      const res = await apiPost<{ token: string; role: string; email: string; name: string }>("/auth/signup", {
+        role,
+        name: name.trim(),
+        email: email.trim(),
+        password,
+      });
+
+      localStorage.setItem("token", res.token);
+      localStorage.setItem("userName", res.name || email.split("@")[0]);
+      localStorage.setItem("role", res.role);
+      navigate(`/${res.role}/dashboard`);
+    } catch (err: any) {
+      setError(err?.message || "Registration failed. Please try again.");
+    }
   };
 
   return (
@@ -159,6 +190,21 @@ const Register = () => {
             </motion.div>
           </AnimatePresence>
 
+          {/* Error message */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -8, height: 0 }}
+                className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              >
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <form onSubmit={handleRegister} className="mt-6 space-y-4">
             <div>
               <Label htmlFor="name" className="text-sm font-semibold text-white/70">Full Name</Label>
@@ -168,6 +214,8 @@ const Register = () => {
                   id="name"
                   placeholder="John Doe"
                   className="border-white/10 bg-white/5 pl-10 text-white placeholder:text-white/25 focus:border-orange-500/50 focus-visible:ring-orange-500/20"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                 />
               </div>
             </div>
@@ -181,6 +229,8 @@ const Register = () => {
                   type="email"
                   placeholder="you@example.com"
                   className="border-white/10 bg-white/5 pl-10 text-white placeholder:text-white/25 focus:border-orange-500/50 focus-visible:ring-orange-500/20"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
             </div>
@@ -194,6 +244,8 @@ const Register = () => {
                   type="password"
                   placeholder="••••••••"
                   className="border-white/10 bg-white/5 pl-10 text-white placeholder:text-white/25 focus:border-orange-500/50 focus-visible:ring-orange-500/20"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
             </div>
@@ -220,4 +272,5 @@ const Register = () => {
     </div>
   );
 };
+
 export default Register;

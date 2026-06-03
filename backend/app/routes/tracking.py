@@ -11,11 +11,33 @@ from app.services.tracking_service import (
     get_me_dashboard,
 )
 
-
+from app.services.category_service import predict_category_from_description
+from app.services.pricing_service import calculate_pricing
 
 from app.utils.jwt_auth import get_current_user_payload
 
-router = APIRRouter(tags=["Tracking & Booking"])
+router = APIRouter(tags=["Tracking & Booking"])
+
+class PredictCategoryRequest(BaseModel):
+    description: str
+
+class PredictCategoryResponse(BaseModel):
+    category: str
+    confidence: float
+
+class DimensionsInput(BaseModel):
+    l: float
+    w: float
+    h: float
+
+class CalculatePriceRequest(BaseModel):
+    weight: float
+    length: float
+    width: float
+    height: float
+    parcel_type: str
+    smart_options: List[str]
+    insurance: str
 
 class ParcelBookingRequest(BaseModel):
     sender_name: str = Field(..., min_length=1)
@@ -48,6 +70,14 @@ class ParcelBookingRequest(BaseModel):
     price_total: float = Field(..., ge=0)
     weather: Optional[str] = "Clear"
     congestion: Optional[str] = "Low"
+
+    # New fields
+    description: str
+    ai_detected_category: str
+    final_category: str
+    confidence: float
+    dimensions: DimensionsInput
+    smart_options: List[str]
 
 class BookingResponse(BaseModel):
     tracking_id: str
@@ -82,6 +112,14 @@ class ParcelDetails(BaseModel):
     route_coordinates: List[List[float]]
 
 
+class AnomalyInfo(BaseModel):
+    anomaly_id: str
+    tracking_id: str
+    anomaly_type: str
+    severity: str
+    created_at: str
+    resolved: bool
+
 class TrackingResponse(BaseModel):
     tracking_id: str
     current_status: str
@@ -93,6 +131,9 @@ class TrackingResponse(BaseModel):
     timeline: List[TimelineItem]
     risk_info: RiskInfo
     parcel_details: ParcelDetails
+    anomaly: Optional[AnomalyInfo] = None
+    pickup_otp: Optional[str] = None
+    delivery_otp: Optional[str] = None
 
 @router.post("/parcels", response_model=BookingResponse)
 def book_parcel_endpoint(
@@ -136,6 +177,17 @@ def get_my_tracking_endpoint(
     tracking_id: str,
     user_payload: Dict[str, Any] = Depends(get_current_user_payload),
 ):
+    from app.utils.mongo import db_service
+    parcels_col = db_service.get_collection("parcels")
+    parcel = parcels_col.find_one({"tracking_id": tracking_id})
+    if not parcel:
+        raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
+
+    expected_email = user_payload.get("sub")
+    actual_email = parcel.get("owner_email")
+    if expected_email and actual_email and actual_email != expected_email:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this parcel")
+
     info = get_tracking_info(tracking_id, user_payload=user_payload)
     if not info:
         raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
@@ -148,8 +200,45 @@ def advance_tracking_endpoint(
     tracking_id: str,
     user_payload: Dict[str, Any] = Depends(get_current_user_payload),
 ):
+    from app.utils.mongo import db_service
+    parcels_col = db_service.get_collection("parcels")
+    parcel = parcels_col.find_one({"tracking_id": tracking_id})
+    if not parcel:
+        raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
+
+    expected_email = user_payload.get("sub")
+    actual_email = parcel.get("owner_email")
+    if expected_email and actual_email and actual_email != expected_email:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own this parcel")
+
     next_stage = advance_tracking_stage(tracking_id, user_payload=user_payload)
     if next_stage is None:
         raise HTTPException(status_code=404, detail=f"Tracking ID {tracking_id} not found")
     return {"message": f"Parcel advanced to stage {next_stage}", "stage": next_stage}
+
+
+@router.post("/predict-category", response_model=PredictCategoryResponse)
+def predict_category_endpoint(payload: PredictCategoryRequest):
+    try:
+        result = predict_category_from_description(payload.description)
+        return PredictCategoryResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/calculate-price")
+def calculate_price_endpoint(payload: CalculatePriceRequest):
+    try:
+        result = calculate_pricing(
+            weight=payload.weight,
+            length=payload.length,
+            width=payload.width,
+            height=payload.height,
+            parcel_type=payload.parcel_type,
+            smart_options=payload.smart_options,
+            insurance=payload.insurance
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

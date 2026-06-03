@@ -26,14 +26,17 @@ type Parcel = {
 };
 
 const statusStyle: Record<string, string> = {
-  "Delivered": "bg-emerald-500/10 text-emerald-400",
-  "In Transit": "bg-blue-500/10 text-blue-400",
-  "Out for Delivery": "bg-sky-500/10 text-sky-400",
-  "Processing": "bg-amber-500/10 text-amber-400",
-  "Parcel Booked": "bg-orange-500/10 text-orange-400",
-  "Picked Up": "bg-violet-500/10 text-violet-400",
-  "At Source Post Office": "bg-indigo-500/10 text-indigo-400",
-  "At Sorting Hub": "bg-purple-500/10 text-purple-400",
+  "Delivered": "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+  "In Transit": "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+  "Out for Delivery": "bg-sky-500/10 text-sky-400 border border-sky-500/20",
+  "Processing": "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+  "Parcel Booked": "bg-orange-500/10 text-orange-400 border border-orange-500/20",
+  "Picked Up": "bg-violet-500/10 text-violet-400 border border-violet-500/20",
+  "At Source Post Office": "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20",
+  "At Sorting Hub": "bg-purple-500/10 text-purple-400 border border-purple-500/20",
+  "Active": "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+  "Delayed": "bg-rose-500/10 text-rose-400 border border-rose-500/20",
+  "Returned": "bg-violet-500/10 text-violet-400 border border-violet-500/20",
 };
 
 const getStatusStyle = (status: string) =>

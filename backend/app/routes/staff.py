@@ -9,7 +9,8 @@ from app.services.staff_service import (
     reattempt_delivery,
     log_delivery_action,
     get_staff_analytics,
-    get_optimized_route
+    get_optimized_route,
+    regenerate_otp
 )
 
 router = APIRouter(prefix="", tags=["Logistics Staff Dashboard"])
@@ -62,6 +63,13 @@ def trigger_reattempt_endpoint(tracking_id: str):
 @router.post("/staff/delivery/{tracking_id}/action")
 def log_action_endpoint(tracking_id: str, payload: ActionLogRequest):
     return log_delivery_action(tracking_id, payload.action_type)
+
+@router.post("/staff/delivery/{tracking_id}/regenerate-otp")
+def regenerate_otp_endpoint(tracking_id: str):
+    result = regenerate_otp(tracking_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
 
 @router.get("/staff/analytics")
 def get_analytics_endpoint(agent_name: str = "Rohan Sharma"):

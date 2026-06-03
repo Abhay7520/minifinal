@@ -53,6 +53,7 @@ def signup(payload: SignupRequest):
         "email": payload.email,
         "password_hash": password_hash,
         "created_at": datetime.utcnow(),
+        "status": "active",
     }
 
     db.insert_one(doc)
@@ -71,6 +72,9 @@ def login(payload: LoginRequest):
     user = db.find_one({"email": payload.email, "role": role})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if user.get("status") == "suspended":
+        raise HTTPException(status_code=403, detail="Account is suspended. Please contact administrator.")
 
     if not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid credentials")

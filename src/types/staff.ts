@@ -15,6 +15,7 @@ export interface DeliveryStop {
   priority: string;
   progress: number;
   price: number;
+  current_stage?: number;
 }
 
 export interface StaffAnalytics {

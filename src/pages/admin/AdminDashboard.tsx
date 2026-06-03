@@ -22,7 +22,13 @@ import {
   RotateCcw,
   Zap,
   Map as MapIcon,
-  X
+  X,
+  Plus,
+  Trash2,
+  Edit,
+  Sliders,
+  Shield,
+  FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -56,13 +62,29 @@ import {
   changeStaffStatus,
   reassignParcelStaff,
   resolveIncident,
+  getUsersList,
+  toggleUserStatus,
+  deleteUser,
+  addStaff,
+  editStaff,
+  deleteStaff,
+  getParcelsList,
+  updateParcelStatus,
+  getAnalyticsStats,
+  getAiMonitoring,
+  getSystemSettings,
+  saveSystemSettings,
   StaffMember,
   AdminAlert,
   FailurePrediction,
   HubStats,
   HeatmapItem,
   LiveMapData,
-  UniversalTrackResponse
+  UniversalTrackResponse,
+  User,
+  SystemSettings,
+  AnalyticsStats,
+  AiMonitoringData
 } from "@/services/adminService";
 import { Button } from "@/components/ui/button";
 
@@ -86,7 +108,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 const AdminDashboard = () => {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<"overview" | "map" | "ml" | "staff" | "hubs" | "incidents" | "track">("overview");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "map" | "ml" | "staff" | "users" | "parcels" | "ai" | "settings" | "hubs" | "incidents" | "track"
+  >("overview");
 
   // Core Data lists
   const [stats, setStats] = useState<any[]>([]);
@@ -97,13 +121,48 @@ const AdminDashboard = () => {
   const [heatmapData, setHeatmapData] = useState<HeatmapItem[]>([]);
   const [liveMapData, setLiveMapData] = useState<LiveMapData | null>(null);
 
+  // User Management
+  const [usersList, setUsersList] = useState<User[]>([]);
+  const [userSearch, setUserSearch] = useState("");
+
+  // Parcel Management
+  const [parcelsList, setParcelsList] = useState<any[]>([]);
+  const [parcelSearch, setParcelSearch] = useState("");
+  const [parcelStatusFilter, setParcelStatusFilter] = useState<number | undefined>(undefined);
+  const [parcelDelayedOnly, setParcelDelayedOnly] = useState(false);
+  const [updateParcelModal, setUpdateParcelModal] = useState<{
+    open: boolean;
+    trackingId: string;
+    statusText: string;
+    stage: number;
+    location: string;
+  }>({
+    open: false,
+    trackingId: "",
+    statusText: "",
+    stage: 1,
+    location: ""
+  });
+
+  // AI Monitoring
+  const [aiMonitoring, setAiMonitoring] = useState<AiMonitoringData | null>(null);
+
+  // System Settings
+  const [systemSettings, setSystemSettings] = useState<SystemSettings>({
+    system_status: "normal",
+    ai_confidence_threshold: 0.8,
+    delay_threshold_hours: 24,
+    auto_assign_agents: true,
+    maintenance_mode: false
+  });
+  const [savingSettings, setSavingSettings] = useState(false);
+
   // Universal search variables
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<UniversalTrackResponse | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
 
   // Resolution variables
-  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   const [incidentsList, setIncidentsList] = useState<any[]>([]);
 
   // Modals / Dropdowns states
@@ -111,6 +170,18 @@ const AdminDashboard = () => {
     open: false,
     trackingId: "",
     agent: ""
+  });
+
+  // Staff CRUD Modals
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [staffForm, setStaffForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    assigned_zone: "Delhi NCR",
+    assigned_branch: "Delhi NCR Hub",
+    status: "active" as "active" | "inactive" | "suspended"
   });
 
   // Load and refresh stats
@@ -141,19 +212,34 @@ const AdminDashboard = () => {
         setIncidentsList(incidents);
       }
 
-      // Aggregate statistics for Stat Cards
-      const totalCount = staff.reduce((sum, s) => sum + s.deliveries_completed + s.deliveries_failed, 0) + 1200;
-      const inTransitCount = map.parcels.filter(p => p.status === "moving").length + 300;
-      const delayedCount = map.parcels.filter(p => p.status === "delayed").length + 28;
-      const deliveredCount = map.parcels.filter(p => p.status === "delivered").length + 89;
+      // Load Users list
+      const users = await getUsersList();
+      setUsersList(users);
 
+      // Load Parcels list
+      const parcels = await getParcelsList(parcelSearch, parcelStatusFilter, parcelDelayedOnly);
+      setParcelsList(parcels);
+
+      // Load AI Monitoring
+      const aiData = await getAiMonitoring();
+      setAiMonitoring(aiData);
+
+      // Load System Settings
+      const settings = await getSystemSettings();
+      if (settings && settings.system_status) {
+        setSystemSettings(settings);
+      }
+
+      // Fetch dynamic analytics calculated live from MongoDB
+      const analyticsStats = await getAnalyticsStats();
+      
       setStats([
-        { label: "Total Parcels", value: String(totalCount), icon: Package, color: "text-orange-400" },
-        { label: "In Transit", value: String(inTransitCount), icon: Truck, color: "text-blue-400" },
-        { label: "Delayed", value: String(delayedCount), icon: AlertTriangle, color: "text-red-400" },
-        { label: "Delivered Today", value: String(deliveredCount), icon: CheckCircle, color: "text-emerald-400" },
-        { label: "Active Staff", value: String(staff.filter(s => s.status === "active").length), icon: Users, color: "text-indigo-400" },
-        { label: "Avg Delivery Time", value: "2.1 days", icon: Clock, color: "text-violet-400" }
+        { label: "Total Parcels", value: String(analyticsStats.totalParcels), icon: Package, color: "text-orange-400" },
+        { label: "In Transit (Active)", value: String(analyticsStats.activeParcels), icon: Truck, color: "text-blue-400" },
+        { label: "Delayed Parcels", value: String(analyticsStats.delayedParcels), icon: AlertTriangle, color: "text-red-400" },
+        { label: "Delivered (Total)", value: String(analyticsStats.deliveredParcels), icon: CheckCircle, color: "text-emerald-400" },
+        { label: "Total Accounts", value: String(analyticsStats.totalUsers), icon: UserCheck, color: "text-indigo-400" },
+        { label: "Total Courier Agents", value: String(analyticsStats.totalStaff), icon: Users, color: "text-violet-400" }
       ]);
 
     } catch (e) {
@@ -163,7 +249,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     syncData();
-  }, []);
+  }, [parcelSearch, parcelStatusFilter, parcelDelayedOnly]);
 
   // Web Socket.IO subscription
   useEffect(() => {
@@ -174,7 +260,6 @@ const AdminDashboard = () => {
     });
 
     socket.on("location_update", (data) => {
-      // Live map staff coordinate updates
       setLiveMapData((prev) => {
         if (!prev) return null;
         const updatedStaff = prev.staff.map((s) =>
@@ -200,15 +285,109 @@ const AdminDashboard = () => {
     };
   }, []);
 
-  // Auto-refresh stats every 5 seconds as requested
+  // Auto-refresh stats every 8 seconds (slightly relaxed for DB performance)
   useEffect(() => {
     const interval = setInterval(() => {
       syncData();
-    }, 5000);
+    }, 8000);
     return () => clearInterval(interval);
-  }, []);
+  }, [parcelSearch, parcelStatusFilter, parcelDelayedOnly]);
 
-  // Staff action triggers
+  // User Actions
+  const handleToggleUserStatus = async (email: string, currentStatus?: string) => {
+    const targetStatus = currentStatus === "suspended" ? "active" : "suspended";
+    try {
+      const res = await toggleUserStatus(email, targetStatus);
+      if (res.success) {
+        toast.success(`User status updated to ${targetStatus}`);
+        syncData();
+      }
+    } catch (e) {
+      toast.error("Failed to update user status");
+    }
+  };
+
+  const handleDeleteUser = async (email: string) => {
+    if (!confirm(`Are you sure you want to permanently delete user account ${email}?`)) return;
+    try {
+      const res = await deleteUser(email);
+      if (res.success) {
+        toast.success(res.message || "User account deleted successfully");
+        syncData();
+      }
+    } catch (e) {
+      toast.error("Failed to delete user");
+    }
+  };
+
+  // Staff CRUD Operations
+  const openAddStaff = () => {
+    setEditingStaffId(null);
+    setStaffForm({
+      name: "",
+      email: "",
+      phone: "",
+      assigned_zone: "Delhi NCR",
+      assigned_branch: "Delhi NCR Hub",
+      status: "active"
+    });
+    setStaffModalOpen(true);
+  };
+
+  const openEditStaff = (staff: StaffMember) => {
+    setEditingStaffId(staff.staff_id);
+    setStaffForm({
+      name: staff.name,
+      email: staff.email,
+      phone: staff.phone,
+      assigned_zone: staff.assigned_zone,
+      assigned_branch: staff.assigned_branch || "Delhi NCR Hub",
+      status: staff.status
+    });
+    setStaffModalOpen(true);
+  };
+
+  const handleStaffFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!staffForm.name || !staffForm.email) {
+      toast.error("Name and Email are required fields");
+      return;
+    }
+
+    try {
+      if (editingStaffId) {
+        const res = await editStaff(editingStaffId, staffForm);
+        if (res.success) {
+          toast.success("Staff details updated successfully!");
+          setStaffModalOpen(false);
+          syncData();
+        }
+      } else {
+        const res = await addStaff(staffForm);
+        if (res.success) {
+          toast.success("New staff member registered successfully!");
+          setStaffModalOpen(false);
+          syncData();
+        }
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Error saving staff member");
+    }
+  };
+
+  const handleDeleteStaff = async (staffId: string) => {
+    if (!confirm(`Are you sure you want to remove staff member ${staffId}?`)) return;
+    try {
+      const res = await deleteStaff(staffId);
+      if (res.success) {
+        toast.success("Staff member deleted successfully");
+        syncData();
+      }
+    } catch (e) {
+      toast.error("Failed to delete staff member");
+    }
+  };
+
   const handleAssignZone = async (staffId: string, zone: string) => {
     try {
       const res = await assignStaffZone(staffId, zone);
@@ -233,12 +412,12 @@ const AdminDashboard = () => {
     }
   };
 
+  // Reassign Stop modal trigger
   const handleReassign = async () => {
     if (!reassignModal.agent) {
       toast.error("Please select an agent for reassignment");
       return;
     }
-
     try {
       const res = await reassignParcelStaff(reassignModal.trackingId, reassignModal.agent);
       if (res.success) {
@@ -248,6 +427,30 @@ const AdminDashboard = () => {
       }
     } catch (e) {
       toast.error("Failed to reassign parcel");
+    }
+  };
+
+  // Manual Status override submit
+  const handleUpdateParcelStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateParcelModal.statusText) {
+      toast.error("Please enter a status description");
+      return;
+    }
+    try {
+      const res = await updateParcelStatus(
+        updateParcelModal.trackingId,
+        updateParcelModal.statusText,
+        updateParcelModal.stage,
+        updateParcelModal.location
+      );
+      if (res.success) {
+        toast.success("Parcel status updated and logged successfully!");
+        setUpdateParcelModal({ open: false, trackingId: "", statusText: "", stage: 1, location: "" });
+        syncData();
+      }
+    } catch (err) {
+      toast.error("Failed to update parcel status");
     }
   };
 
@@ -279,11 +482,25 @@ const AdminDashboard = () => {
     }
   };
 
-  // Compile markers for Admin Map View
-  // Color requirements: Green -> Delivered, Orange -> In Transit, Red -> Delayed/Failed, Blue -> Staff
-  // In LeafletMap: Green -> delivered, Orange -> current, Red -> delayed, Blue -> moving
-  const adminMapMarkers: any[] = [];
+  // Settings Save
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    try {
+      const res = await saveSystemSettings(systemSettings);
+      if (res.success) {
+        toast.success("System configurations persisted to MongoDB successfully!");
+        syncData();
+      }
+    } catch (e) {
+      toast.error("Failed to save settings");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
+  // Compile markers for Admin Map View
+  const adminMapMarkers: any[] = [];
   if (liveMapData) {
     liveMapData.parcels.forEach((p) => {
       adminMapMarkers.push({
@@ -301,7 +518,7 @@ const AdminDashboard = () => {
         lat: s.lat,
         lng: s.lng,
         label: `${s.label} · Speed: ${s.speed} km/h · Battery: ${s.battery}%`,
-        status: "moving" // Blue
+        status: "moving"
       });
     });
 
@@ -311,36 +528,48 @@ const AdminDashboard = () => {
         lat: h.lat,
         lng: h.lng,
         label: h.label,
-        status: "delayed" // Red pulsing delayed hubs
+        status: "delayed"
       });
     });
   }
 
+  // Filter lists based on search
+  const filteredUsers = usersList.filter(
+    (u) =>
+      u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.email.toLowerCase().includes(userSearch.toLowerCase()) ||
+      u.role.toLowerCase().includes(userSearch.toLowerCase())
+  );
+
   return (
     <DashboardLayout role="admin">
-      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="mb-8 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-3.5xl font-extrabold text-white tracking-tight">Admin Dashboard</h1>
-          <p className="mt-1.5 text-white/50 text-sm">Real-time AI Logistics Command Center & Database monitor</p>
+          <h1 className="font-display text-3.5xl font-extrabold text-white tracking-tight">Admin Control Center</h1>
+          <p className="mt-1.5 text-white/50 text-sm">Real-time AI Logistics Core Hub & Configuration Database Monitor</p>
         </div>
 
         {/* Tab Controls */}
-        <div className="flex flex-wrap gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.08]">
+        <div className="flex flex-wrap gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.08] max-w-full overflow-x-auto">
           {[
             { id: "overview", label: "Overview", icon: Compass },
             { id: "map", label: "Operations Map", icon: MapIcon },
             { id: "ml", label: "Failure AI", icon: Zap },
-            { id: "staff", label: "Staff Center", icon: Users },
-            { id: "hubs", label: "Hubs & Costs", icon: IndianRupee },
+            { id: "users", label: "Users", icon: UserCheck },
+            { id: "staff", label: "Staff Registry", icon: Users },
+            { id: "parcels", label: "Parcels", icon: Package },
+            { id: "ai", label: "AI Monitor", icon: Activity },
+            { id: "settings", label: "Settings", icon: Sliders },
+            { id: "hubs", label: "Hubs", icon: IndianRupee },
             { id: "incidents", label: "Incidents", icon: ShieldAlert },
             { id: "track", label: "Track Search", icon: Search }
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shrink-0 ${
                 activeTab === tab.id
-                  ? "bg-gradient-to-r from-orange-500 to-violet-600 text-white shadow-lg"
+                  ? "bg-gradient-to-r from-orange-500 to-violet-600 text-white shadow-lg shadow-orange-500/20"
                   : "text-white/60 hover:bg-white/5 hover:text-white"
               }`}
             >
@@ -352,7 +581,7 @@ const AdminDashboard = () => {
       </div>
 
       {/* ==================================================== */}
-      {/* TAB 1: OVERVIEW CONTROL CENTER (DEFAULT ORIGINAL) */}
+      {/* TAB 1: OVERVIEW CONTROL CENTER */}
       {/* ==================================================== */}
       {activeTab === "overview" && (
         <>
@@ -362,10 +591,10 @@ const AdminDashboard = () => {
               <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
                 className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-4 backdrop-blur-md">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-white/50">{s.label}</span>
-                  <s.icon className={`h-4 w-4 ${s.color}`} />
+                  <span className="text-[10px] uppercase font-black tracking-wider text-white/50">{s.label}</span>
+                  <s.icon className={`h-4.5 w-4.5 ${s.color}`} />
                 </div>
-                <p className="mt-2 font-display text-xl font-bold text-white">{s.value}</p>
+                <p className="mt-2.5 font-display text-2xl font-extrabold text-white">{s.value}</p>
               </motion.div>
             ))}
           </div>
@@ -379,20 +608,24 @@ const AdminDashboard = () => {
               <span className="ml-auto rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs text-red-400 font-bold">{systemAlerts.filter(a => a.type === "critical").length} critical</span>
             </div>
             <div className="max-h-[200px] overflow-y-auto divide-y divide-white/[0.06]">
-              {systemAlerts.map((a) => (
-                <div key={a._id} className="flex items-start gap-3 p-3 hover:bg-white/[0.04]">
-                  <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                    a.type === "critical" ? "bg-red-400 animate-pulse" : a.type === "warning" ? "bg-amber-400" : "bg-blue-400"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white/80">{a.message}</p>
-                    <span className="text-xs text-white/30">Just now</span>
+              {systemAlerts.length === 0 ? (
+                <div className="p-4 text-center text-xs text-white/35 italic">No warnings active. All processes operating within parameters.</div>
+              ) : (
+                systemAlerts.map((a) => (
+                  <div key={a._id} className="flex items-start gap-3 p-3.5 hover:bg-white/[0.04]">
+                    <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                      a.type === "critical" ? "bg-red-400 animate-pulse" : a.type === "warning" ? "bg-amber-400" : "bg-blue-400"
+                    }`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white/80">{a.message}</p>
+                      <span className="text-[10px] text-white/30">{new Date(a.timestamp).toLocaleString()}</span>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      a.type === "critical" ? "bg-red-500/10 text-red-400" : a.type === "warning" ? "bg-amber-500/10 text-amber-400" : "bg-blue-500/10 text-blue-400"
+                    }`}>{a.type}</span>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                    a.type === "critical" ? "bg-red-500/10 text-red-400" : a.type === "warning" ? "bg-amber-500/10 text-amber-400" : "bg-blue-500/10 text-blue-400"
-                  }`}>{a.type}</span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </motion.div>
 
@@ -447,137 +680,6 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
-
-          {/* Revenue & Heatmap Table */}
-          <div className="mb-8 grid gap-6 lg:grid-cols-2">
-            {/* Revenue Analytics */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-md">
-              <div className="mb-4 flex items-center gap-2">
-                <IndianRupee className="h-5 w-5 text-emerald-400" />
-                <h3 className="font-display text-lg font-semibold text-white">Revenue Analytics</h3>
-              </div>
-              <div className="mb-4 flex gap-4">
-                <div className="rounded-xl border border-white/[0.06] bg-[#0c0a15] p-3 flex-1">
-                  <p className="text-xs text-white/40">This Month</p>
-                  <p className="font-display text-xl font-bold text-emerald-400">₹81,000</p>
-                  <p className="text-xs text-emerald-400/60">+11% vs last month</p>
-                </div>
-                <div className="rounded-xl border border-white/[0.06] bg-[#0c0a15] p-3 flex-1">
-                  <p className="text-xs text-white/40">YTD Revenue</p>
-                  <p className="font-display text-xl font-bold text-white">₹3,72,000</p>
-                  <p className="text-xs text-white/40">Avg ₹62K/month</p>
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={150}>
-                <AreaChart data={[
-                  { name: "Jan", revenue: 42000 }, { name: "Feb", revenue: 58000 },
-                  { name: "Mar", revenue: 51000 }, { name: "Apr", revenue: 67000 },
-                  { name: "May", revenue: 73000 }, { name: "Jun", revenue: 81000 }
-                ]}>
-                  <defs>
-                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="hsl(142, 70%, 45%)" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="hsl(142, 70%, 45%)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "rgba(255,255,255,0.4)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "rgba(255,255,255,0.4)" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v/1000}K`} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="revenue" stroke="hsl(142, 70%, 45%)" fill="url(#revenueGradient)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </motion.div>
-
-            {/* Heatmap Density list */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-md">
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="h-5 w-5 text-orange-400" />
-                  <h3 className="font-display text-lg font-semibold text-white">Regional Hotspots</h3>
-                </div>
-                <span className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />Live Engine
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                {heatmapData.map((r) => (
-                  <div key={r.name} className={`rounded-xl border p-3 ${
-                    r.severity === "critical" || r.severity === "high" 
-                      ? "border-red-500/20 bg-red-500/[0.02]" 
-                      : r.severity === "medium" 
-                        ? "border-orange-500/20 bg-orange-500/[0.02]" 
-                        : "border-white/[0.06] bg-[#0c0a15]"
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-white/80 truncate">{r.name}</span>
-                      {r.delays > 5 && <AlertTriangle className="h-3.5 w-3.5 text-red-400 animate-pulse" />}
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <span className="text-xs text-white/40">{r.count} parcels</span>
-                      <span className={`text-xs font-bold ${r.delays > 5 ? "text-red-400" : "text-emerald-400"}`}>{r.delays} delays</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Leaderboard & Anomalies */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Leaderboard */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md">
-              <div className="flex items-center gap-2 border-b border-white/[0.06] p-5">
-                <Trophy className="h-5 w-5 text-amber-400" />
-                <h2 className="font-display text-lg font-semibold text-white">Staff Rating Leaderboard</h2>
-                <span className="ml-auto text-xs text-white/30">Monthly Stats</span>
-              </div>
-              <div className="divide-y divide-white/[0.06]">
-                {staffList.slice(0, 5).map((s, index) => (
-                  <div key={s.staff_id} className="flex items-center gap-4 p-4 hover:bg-white/[0.04]">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06] text-xs font-bold text-white/60">
-                      {index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `#${index + 1}`}
-                    </span>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-white">{s.name}</p>
-                      <p className="text-xs text-white/40">{s.deliveries_completed} deliveries · {s.assigned_zone}</p>
-                    </div>
-                    <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5">
-                      <span className="text-xs font-bold text-amber-400">★ {s.rating}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-
-            {/* AI Anomalies detection */}
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-md">
-              <div className="flex items-center gap-2 border-b border-white/[0.06] p-5">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
-                <h2 className="font-display text-lg font-semibold text-white">AI Anomaly Detections Feed</h2>
-              </div>
-              <div className="divide-y divide-white/[0.06] max-h-[320px] overflow-y-auto">
-                {predictions.filter(p => p.failure_probability > 40).map((a) => (
-                  <div key={a.tracking_id} className="flex items-center justify-between p-5 hover:bg-white/[0.04]">
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-orange-400 font-mono">{a.tracking_id}</span>
-                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase ${
-                          a.risk_level === "Critical" ? "bg-red-500/20 text-red-400" : "bg-orange-500/20 text-orange-400"
-                        }`}>{a.risk_level} Risk</span>
-                      </div>
-                      <p className="mt-1 text-xs text-white/50">{a.top_risk_factors[0] || "Suspicious inactivity"}</p>
-                    </div>
-                    <span className="text-xs text-white/40 font-black">{a.failure_probability}% Failure Prob</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          </div>
         </>
       )}
 
@@ -618,41 +720,45 @@ const AdminDashboard = () => {
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
               <h3 className="font-display text-lg font-semibold text-white mb-4">ML Failure Risk Alert Dashboard</h3>
               <div className="divide-y divide-white/[0.06]">
-                {predictions.map((p) => (
-                  <div key={p.tracking_id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-sm font-bold text-orange-400">{p.tracking_id}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                          p.risk_level === "Critical" ? "bg-red-500/20 text-red-400 animate-pulse" :
-                          p.risk_level === "High" ? "bg-orange-500/20 text-orange-400" :
-                          "bg-blue-500/10 text-blue-400"
-                        }`}>{p.risk_level} Risk</span>
+                {predictions.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-white/35 italic">No active failure risk anomalies detected.</div>
+                ) : (
+                  predictions.map((p) => (
+                    <div key={p.tracking_id} className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm font-bold text-orange-400">{p.tracking_id}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                            p.risk_level === "Critical" ? "bg-red-500/20 text-red-400 animate-pulse" :
+                            p.risk_level === "High" ? "bg-orange-500/20 text-orange-400" :
+                            "bg-blue-500/10 text-blue-400"
+                          }`}>{p.risk_level} Risk</span>
+                        </div>
+                        <h4 className="text-sm font-bold text-white mt-1.5">{p.customer}</h4>
+                        <p className="text-xs text-white/45 truncate">{p.address}</p>
+                        
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                          {p.top_risk_factors.map((f, index) => (
+                            <span key={index} className="text-[9px] text-orange-400 bg-orange-500/5 px-2 py-0.5 rounded-md border border-orange-500/10">
+                              {f}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <h4 className="text-sm font-bold text-white mt-1.5">{p.customer}</h4>
-                      <p className="text-xs text-white/45 truncate">{p.address}</p>
-                      
-                      <div className="mt-2.5 flex flex-wrap gap-1.5">
-                        {p.top_risk_factors.map((f, index) => (
-                          <span key={index} className="text-[9px] text-orange-400 bg-orange-500/5 px-2 py-0.5 rounded-md border border-orange-500/10">
-                            {f}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
 
-                    <div className="flex items-center gap-4 shrink-0 justify-between md:justify-end">
-                      <div className="text-center">
-                        <span className="text-[10px] text-white/35 uppercase font-black block">Risk Confidence</span>
-                        <span className="font-display text-base font-extrabold text-white mt-0.5 block">{p.confidence_percentage}%</span>
-                      </div>
-                      <div className="text-center">
-                        <span className="text-[10px] text-white/35 uppercase font-black block">Failure Prob</span>
-                        <span className="font-display text-lg font-black text-red-400 mt-0.5 block">{p.failure_probability}%</span>
+                      <div className="flex items-center gap-4 shrink-0 justify-between md:justify-end">
+                        <div className="text-center">
+                          <span className="text-[10px] text-white/35 uppercase font-black block">Risk Confidence</span>
+                          <span className="font-display text-base font-extrabold text-white mt-0.5 block">{p.confidence_percentage}%</span>
+                        </div>
+                        <div className="text-center">
+                          <span className="text-[10px] text-white/35 uppercase font-black block">Failure Prob</span>
+                          <span className="font-display text-lg font-black text-red-400 mt-0.5 block">{p.failure_probability}%</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -683,18 +789,26 @@ const AdminDashboard = () => {
       {/* TAB 4: SMART STAFF MANAGEMENT SECTION */}
       {/* ==================================================== */}
       {activeTab === "staff" && (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
-              <h3 className="font-display text-base font-bold text-white mb-4">Operations Courier Agent Registry</h3>
+        <div className="space-y-6">
+          <div className="flex justify-between items-center bg-white/[0.02] border border-white/[0.06] p-4 rounded-2xl">
+            <h3 className="font-display text-base font-bold text-white">Logistics Agent Directory</h3>
+            <Button onClick={openAddStaff} className="bg-gradient-to-r from-orange-500 to-violet-600 hover:from-orange-600 hover:to-violet-700 text-white font-bold rounded-xl flex items-center gap-1.5 text-xs h-10 px-4">
+              <Plus className="h-4.5 w-4.5" />
+              Add Courier Agent
+            </Button>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-white/[0.08] text-white/40 uppercase tracking-wider">
-                      <th className="py-2.5">Staff Name</th>
-                      <th className="py-2.5">Assigned Zone</th>
-                      <th className="py-2.5">Performance</th>
-                      <th className="py-2.5">Status</th>
+                      <th className="py-2.5">Staff Details</th>
+                      <th className="py-2.5">Zone Allocation</th>
+                      <th className="py-2.5">Branch Office</th>
+                      <th className="py-2.5">Performance Rating</th>
+                      <th className="py-2.5">Service Status</th>
                       <th className="py-2.5 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -702,8 +816,8 @@ const AdminDashboard = () => {
                     {staffList.map((s) => (
                       <tr key={s.staff_id} className="hover:bg-white/[0.02]">
                         <td className="py-3">
-                          <div className="font-semibold text-white">{s.name}</div>
-                          <div className="text-[10px] text-white/40">{s.email}</div>
+                          <div className="font-semibold text-white">{s.name} <span className="text-[10px] text-white/40">({s.staff_id})</span></div>
+                          <div className="text-[10px] text-white/40">{s.email} · {s.phone}</div>
                         </td>
                         <td className="py-3">
                           <select
@@ -717,6 +831,11 @@ const AdminDashboard = () => {
                             <option value="Pune GPO">Pune GPO</option>
                             <option value="Hyderabad City">Hyderabad City</option>
                           </select>
+                        </td>
+                        <td className="py-3">
+                          <span className="bg-white/5 border border-white/[0.06] text-white/70 px-2.5 py-1 rounded-lg text-[10px] font-mono">
+                            {s.assigned_branch || "Delhi NCR Hub"}
+                          </span>
                         </td>
                         <td className="py-3">
                           <div className="font-semibold text-white">★ {s.rating}</div>
@@ -737,13 +856,29 @@ const AdminDashboard = () => {
                             <option value="suspended">Suspended</option>
                           </select>
                         </td>
-                        <td className="py-3 text-right">
+                        <td className="py-3 text-right space-x-1.5">
                           <Button
                             size="xs"
+                            variant="outline"
+                            onClick={() => openEditStaff(s)}
+                            className="border-white/10 bg-white/5 text-white/80 hover:bg-white/10 text-[10px] rounded-lg"
+                          >
+                            <Edit className="h-3 w-3 mr-1" /> Edit
+                          </Button>
+                          <Button
+                            size="xs"
+                            variant="outline"
                             onClick={() => setReassignModal({ open: true, trackingId: "", agent: s.name })}
                             className="border-white/10 bg-white/5 text-orange-400 hover:bg-white/10 text-[10px] rounded-lg"
                           >
-                            Reassign Stop
+                            Assign Stop
+                          </Button>
+                          <Button
+                            size="xs"
+                            onClick={() => handleDeleteStaff(s.staff_id)}
+                            className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-[10px] rounded-lg"
+                          >
+                            <Trash2 className="h-3 w-3" />
                           </Button>
                         </td>
                       </tr>
@@ -753,81 +888,432 @@ const AdminDashboard = () => {
               </div>
             </div>
           </div>
-
-          <div className="space-y-6">
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
-              <h3 className="font-display text-xs text-white/40 uppercase tracking-widest font-black mb-3">Live Performance metrics</h3>
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={[
-                    { name: "Rahul", score: 97 },
-                    { name: "Priya", score: 95 },
-                    { name: "Rohan", score: 93 },
-                    { name: "Sneha", score: 91 },
-                    { name: "Arjun", score: 85 }
-                  ]}>
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.3)" fontSize={10} />
-                    <YAxis stroke="rgba(255,255,255,0.3)" fontSize={10} domain={[80, 100]} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0c0a15", borderColor: "rgba(255,255,255,0.1)" }} />
-                    <Area type="monotone" dataKey="score" stroke="#a855f7" fill="rgba(168,85,247,0.1)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          {/* Reassign Modal */}
-          {reassignModal.open && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-              <div className="rounded-2xl border border-white/[0.08] bg-[#0d0d16] p-6 w-full max-w-md space-y-4">
-                <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
-                  <h4 className="font-display text-base font-bold text-white">Reassign active cargo stops</h4>
-                  <button onClick={() => setReassignModal({ open: false, trackingId: "", agent: "" })} className="text-white/35 hover:text-white">
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                
-                <div>
-                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Enter parcel tracking ID</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. AIP713672"
-                    value={reassignModal.trackingId}
-                    onChange={(e) => setReassignModal({ ...reassignModal, trackingId: e.target.value })}
-                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Assign to Agent</label>
-                  <select
-                    value={reassignModal.agent}
-                    onChange={(e) => setReassignModal({ ...reassignModal, agent: e.target.value })}
-                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
-                  >
-                    <option value="">Select agent...</option>
-                    {staffList.map(s => (
-                      <option key={s.staff_id} value={s.name}>{s.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex gap-2 justify-end pt-2">
-                  <Button size="sm" variant="ghost" onClick={() => setReassignModal({ open: false, trackingId: "", agent: "" })} className="text-white/45">
-                    Cancel
-                  </Button>
-                  <Button size="sm" onClick={handleReassign} className="bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4">
-                    Confirm Reassign
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
       {/* ==================================================== */}
-      {/* TAB 5: FINANCIALS & HUBS MONITORINGS */}
+      {/* TAB 5: USER ACCOUNT MANAGEMENT */}
+      {/* ==================================================== */}
+      {activeTab === "users" && (
+        <div className="space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/[0.02] border border-white/[0.06] p-4 rounded-2xl">
+            <h3 className="font-display text-base font-bold text-white">User Accounts Monitor</h3>
+            <div className="relative w-full md:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+              <input
+                type="text"
+                placeholder="Search accounts by name/email..."
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                className="w-full bg-[#0c0a15] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-white/30 outline-none focus:border-orange-500"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/[0.08] text-white/40 uppercase tracking-wider">
+                    <th className="py-2.5">Name</th>
+                    <th className="py-2.5">Email address</th>
+                    <th className="py-2.5">Authorization Role</th>
+                    <th className="py-2.5">Registered Date</th>
+                    <th className="py-2.5">Account Status</th>
+                    <th className="py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] text-white/80">
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-white/40 italic">No user accounts found.</td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <tr key={u.email} className="hover:bg-white/[0.02]">
+                        <td className="py-3 font-semibold text-white">{u.name}</td>
+                        <td className="py-3 font-mono text-white/60">{u.email}</td>
+                        <td className="py-3">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                            u.role === "admin" ? "bg-red-500/10 text-red-400" :
+                            u.role === "staff" ? "bg-violet-500/10 text-violet-400" :
+                            "bg-blue-500/10 text-blue-400"
+                          }`}>{u.role}</span>
+                        </td>
+                        <td className="py-3 text-white/40">
+                          {u.created_at ? new Date(u.created_at).toLocaleDateString() : "Prior migration"}
+                        </td>
+                        <td className="py-3">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] uppercase font-black ${
+                            u.status === "suspended" ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
+                          }`}>
+                            {u.status || "active"}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right space-x-1.5">
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => handleToggleUserStatus(u.email, u.status)}
+                            className={`border-white/10 text-xs rounded-lg ${
+                              u.status === "suspended" 
+                                ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border-emerald-500/20" 
+                                : "bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/20"
+                            }`}
+                          >
+                            {u.status === "suspended" ? "Activate" : "Suspend"}
+                          </Button>
+                          <Button
+                            size="xs"
+                            onClick={() => handleDeleteUser(u.email)}
+                            className="bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/20 text-xs rounded-lg"
+                          >
+                            Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB 6: PARCEL CONTROL REGISTRY */}
+      {/* ==================================================== */}
+      {activeTab === "parcels" && (
+        <div className="space-y-6">
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white/[0.02] border border-white/[0.06] p-4 rounded-2xl">
+            <h3 className="font-display text-base font-bold text-white shrink-0">Logistics Cargo Registry</h3>
+            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+              <div className="relative flex-1 xl:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                <input
+                  type="text"
+                  placeholder="Search by Tracking ID/sender/receiver..."
+                  value={parcelSearch}
+                  onChange={(e) => setParcelSearch(e.target.value)}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-white/30 outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <select
+                value={parcelStatusFilter === undefined ? "all" : String(parcelStatusFilter)}
+                onChange={(e) => setParcelStatusFilter(e.target.value === "all" ? undefined : Number(e.target.value))}
+                className="bg-[#0c0a15] border border-white/10 rounded-xl text-white px-3 py-2 outline-none text-xs"
+              >
+                <option value="all">All Stages</option>
+                <option value="1">Stage 1: Booked</option>
+                <option value="2">Stage 2: Picked Up</option>
+                <option value="3">Stage 3: Source PO</option>
+                <option value="4">Stage 4: In Transit</option>
+                <option value="5">Stage 5: Sorting Hub</option>
+                <option value="6">Stage 6: Out for Delivery</option>
+                <option value="7">Stage 7: Delivered</option>
+                <option value="-1">Stage -1: Delivery Failed</option>
+              </select>
+
+              <button
+                onClick={() => setParcelDelayedOnly(!parcelDelayedOnly)}
+                className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                  parcelDelayedOnly 
+                    ? "bg-red-500/10 border-red-500/20 text-red-400" 
+                    : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+                }`}
+              >
+                Delayed Only
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/[0.08] text-white/40 uppercase tracking-wider">
+                    <th className="py-2.5">Tracking ID</th>
+                    <th className="py-2.5">Sender</th>
+                    <th className="py-2.5">Receiver</th>
+                    <th className="py-2.5">Weight / Type</th>
+                    <th className="py-2.5">Estimated ETA</th>
+                    <th className="py-2.5">Current Stage</th>
+                    <th className="py-2.5">Amount</th>
+                    <th className="py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] text-white/80">
+                  {parcelsList.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-white/40 italic">No packages matching criteria in database.</td>
+                    </tr>
+                  ) : (
+                    parcelsList.map((p) => {
+                      const isDelivered = p.manual_stage_override === 7;
+                      const isFailed = p.manual_stage_override === -1;
+                      
+                      // Check for delay: eta expired and not delivered
+                      const nowStr = new Date().toISOString().split('T')[0];
+                      const isDelayed = (p.eta < nowStr && !isDelivered) || isFailed;
+
+                      return (
+                        <tr key={p.tracking_id} className="hover:bg-white/[0.02]">
+                          <td className="py-3 font-mono font-bold text-orange-400">{p.tracking_id}</td>
+                          <td className="py-3">
+                            <div className="font-semibold text-white">{p.sender_name}</div>
+                            <div className="text-[9px] text-white/40">{p.source_po}</div>
+                          </td>
+                          <td className="py-3">
+                            <div className="font-semibold text-white">{p.receiver_name}</div>
+                            <div className="text-[9px] text-white/40">{p.destination_address.split(',')[0]}</div>
+                          </td>
+                          <td className="py-3">
+                            <div className="font-semibold text-white">{p.weight} KG</div>
+                            <div className="text-[9px] text-white/40 uppercase">{p.parcel_type}</div>
+                          </td>
+                          <td className="py-3">
+                            <div className="text-white/80">{p.eta}</div>
+                            {isDelayed && (
+                              <span className="text-[9px] text-red-400 font-bold uppercase animate-pulse">SLA Delayed</span>
+                            )}
+                          </td>
+                          <td className="py-3">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                              isDelivered ? "bg-emerald-500/10 text-emerald-400" :
+                              isFailed ? "bg-red-500/10 text-red-400" :
+                              isDelayed ? "bg-amber-500/10 text-amber-400 animate-pulse" :
+                              "bg-blue-500/10 text-blue-400"
+                            }`}>
+                              {isDelivered ? "Delivered" : isFailed ? "Failed" : `Stage ${p.manual_stage_override || 1}`}
+                            </span>
+                          </td>
+                          <td className="py-3 font-semibold text-emerald-400">₹{p.price_total}</td>
+                          <td className="py-3 text-right">
+                            <Button
+                              size="xs"
+                              onClick={() => setUpdateParcelModal({
+                                open: true,
+                                trackingId: p.tracking_id,
+                                statusText: "Sorted at Facility",
+                                stage: p.manual_stage_override || 1,
+                                location: p.dest_po || "Sorting Hub"
+                              })}
+                              className="border-white/10 bg-white/5 text-orange-400 hover:bg-white/10 text-[10px] rounded-lg"
+                            >
+                              Update Status
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB 7: AI ANOMALIES & AUDITS MONITOR */}
+      {/* ==================================================== */}
+      {activeTab === "ai" && (
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-6">
+            {/* Active anomalies */}
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+                <h3 className="font-display text-base font-bold text-white">Flagged Logistics Anomalies</h3>
+              </div>
+              <div className="divide-y divide-white/[0.06] max-h-[300px] overflow-y-auto pr-1">
+                {aiMonitoring?.anomalies.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-white/35 italic">No active anomalies detected in logs.</div>
+                ) : (
+                  aiMonitoring?.anomalies.map((a, idx) => (
+                    <div key={idx} className="py-3 flex justify-between items-start">
+                      <div>
+                        <span className="font-mono text-xs font-bold text-orange-400">{a.tracking_id}</span>
+                        <p className="text-xs text-white/80 mt-1">{a.message || "Shipment duration anomaly triggered"}</p>
+                        <span className="text-[10px] text-white/30">{new Date(a.created_at).toLocaleString()}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                        a.severity === "Critical" ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-amber-500/20 text-amber-400"
+                      }`}>{a.severity}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Delay Predictions */}
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp className="h-5 w-5 text-violet-400" />
+                <h3 className="font-display text-base font-bold text-white">ML Predictive Delay Analysis</h3>
+              </div>
+              <div className="divide-y divide-white/[0.06] max-h-[300px] overflow-y-auto pr-1">
+                {aiMonitoring?.predictions.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-white/35 italic">No delay predictions logged.</div>
+                ) : (
+                  aiMonitoring?.predictions.map((p, idx) => (
+                    <div key={idx} className="py-3 flex justify-between items-center">
+                      <div>
+                        <span className="font-mono text-xs font-bold text-orange-400">{p.tracking_id}</span>
+                        <p className="text-xs text-white/50 mt-0.5">Risk score: {p.risk_score} · {p.risk_level} Level</p>
+                      </div>
+                      <span className="text-xs font-bold text-white font-mono">{p.risk_level} Risk</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {/* Security Alerts */}
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="h-4.5 w-4.5 text-red-500" />
+                <h3 className="font-display text-xs text-white/40 uppercase tracking-widest font-black">Fraud alerts</h3>
+              </div>
+              <div className="space-y-3">
+                {aiMonitoring?.fraudAlerts.length === 0 ? (
+                  <div className="py-4 text-center text-xs text-white/30 italic">No security warnings logged today.</div>
+                ) : (
+                  aiMonitoring?.fraudAlerts.map((f, idx) => (
+                    <div key={idx} className="p-3 rounded-xl border border-red-500/20 bg-red-500/5 space-y-1">
+                      <span className="text-[9px] font-black uppercase text-red-400 bg-red-500/10 px-2 py-0.5 rounded">Security Alert</span>
+                      <p className="text-xs text-white/70 mt-1 leading-relaxed">{f.message}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Validation Audit Logs */}
+            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="h-4.5 w-4.5 text-orange-400" />
+                <h3 className="font-display text-xs text-white/40 uppercase tracking-widest font-black">OTP Validation log</h3>
+              </div>
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                {aiMonitoring?.validationLogs.length === 0 ? (
+                  <div className="text-center text-xs text-white/30 italic">No verification audits logged.</div>
+                ) : (
+                  aiMonitoring?.validationLogs.map((l, idx) => (
+                    <div key={idx} className="p-2.5 rounded-xl border border-white/[0.04] bg-[#0c0a15] text-[10px] space-y-1">
+                      <div className="flex justify-between">
+                        <span className="font-bold text-white/70">{l.tracking_id}</span>
+                        <span className={`font-black uppercase text-[8px] px-1.5 py-0.2 rounded ${
+                          l.verified ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                        }`}>{l.verified ? "Verified" : "Pending"}</span>
+                      </div>
+                      <p className="text-white/40 text-[9px]">OTP type: {l.otp_type} · Attempts: {l.attempts}/3</p>
+                      {l.verified_at && (
+                        <span className="text-white/25 block text-[8px]">Verified at {new Date(l.verified_at).toLocaleTimeString()}</span>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB 8: GLOBAL SYSTEM CONFIGURATION */}
+      {/* ==================================================== */}
+      {activeTab === "settings" && (
+        <div className="max-w-2xl mx-auto rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-md space-y-6">
+          <div className="flex items-center gap-2.5 border-b border-white/[0.06] pb-4">
+            <Sliders className="h-5 w-5 text-orange-400" />
+            <h3 className="font-display text-lg font-bold text-white">Global System Configuration</h3>
+          </div>
+
+          <form onSubmit={handleSaveSettings} className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1.5">System Operational Status</label>
+                <select
+                  value={systemSettings.system_status}
+                  onChange={(e) => setSystemSettings({ ...systemSettings, system_status: e.target.value as any })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-orange-500"
+                >
+                  <option value="normal">Normal Flow (nominal operations)</option>
+                  <option value="restricted">Restricted Corridors (delay rerouting)</option>
+                  <option value="maintenance">System Maintenance</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1.5">SLA Delay threshold (hours)</label>
+                <input
+                  type="number"
+                  value={systemSettings.delay_threshold_hours}
+                  onChange={(e) => setSystemSettings({ ...systemSettings, delay_threshold_hours: Number(e.target.value) })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-orange-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-white/40 uppercase font-black block mb-1.5">
+                AI delay prediction confidence limit ({Math.round(systemSettings.ai_confidence_threshold * 100)}%)
+              </label>
+              <input
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.05"
+                value={systemSettings.ai_confidence_threshold}
+                onChange={(e) => setSystemSettings({ ...systemSettings, ai_confidence_threshold: Number(e.target.value) })}
+                className="w-full accent-orange-500"
+              />
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between p-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+                <div>
+                  <span className="text-xs font-bold text-white block">Auto Agent Zone Allocation</span>
+                  <span className="text-[10px] text-white/40 leading-normal block">Automatically delegate cargo to closest courier staff</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={systemSettings.auto_assign_agents}
+                  onChange={(e) => setSystemSettings({ ...systemSettings, auto_assign_agents: e.target.checked })}
+                  className="h-4 w-4 accent-orange-500 rounded cursor-pointer"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+                <div>
+                  <span className="text-xs font-bold text-white block">Emergency Maintenance Offline Lock</span>
+                  <span className="text-[10px] text-white/40 leading-normal block">Disable booking features during server database updates</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={systemSettings.maintenance_mode}
+                  onChange={(e) => setSystemSettings({ ...systemSettings, maintenance_mode: e.target.checked })}
+                  className="h-4 w-4 accent-orange-500 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-4 border-t border-white/[0.06]">
+              <Button type="submit" disabled={savingSettings} className="bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl px-6 py-2.5 h-11 text-xs">
+                {savingSettings ? "Persisting settings..." : "Commit changes to MongoDB"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* TAB 9: FINANCIALS & HUBS MONITORINGS */}
       {/* ==================================================== */}
       {activeTab === "hubs" && (
         <div className="space-y-6">
@@ -871,7 +1357,6 @@ const AdminDashboard = () => {
             </div>
           </div>
 
-          {/* Hub performance list cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {hubsList.map((hub) => (
               <div key={hub.name} className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur-md flex flex-col justify-between relative overflow-hidden">
@@ -906,7 +1391,7 @@ const AdminDashboard = () => {
       )}
 
       {/* ==================================================== */}
-      {/* TAB 6: INCIDENT RESOLUTIONS SCREEN */}
+      {/* TAB 10: INCIDENT RESOLUTIONS SCREEN */}
       {/* ==================================================== */}
       {activeTab === "incidents" && (
         <div className="grid gap-6 lg:grid-cols-3">
@@ -982,7 +1467,7 @@ const AdminDashboard = () => {
       )}
 
       {/* ==================================================== */}
-      {/* TAB 7: UNIVERSAL SEARCH & TRACK TIMELINE */}
+      {/* TAB 11: UNIVERSAL SEARCH & TRACK TIMELINE */}
       {/* ==================================================== */}
       {activeTab === "track" && (
         <div className="space-y-6">
@@ -1062,7 +1547,6 @@ const AdminDashboard = () => {
                   <div className="space-y-4 border-l border-white/[0.08] pl-4 ml-1.5">
                     {searchResult.history.map((hist, index) => (
                       <div key={index} className="relative">
-                        {/* Timeline dot */}
                         <div className="absolute -left-[22px] top-1 h-3 w-3 rounded-full bg-orange-500 ring-4 ring-orange-500/10" />
                         <div>
                           <span className="text-[10px] text-white/35">{new Date(hist.timestamp).toLocaleString()}</span>
@@ -1077,6 +1561,242 @@ const AdminDashboard = () => {
 
             </motion.div>
           )}
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODALS */}
+      {/* ==================================================== */}
+
+      {/* 1. Reassign Agent Stop Modal */}
+      {reassignModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="rounded-2xl border border-white/[0.08] bg-[#0d0d16] p-6 w-full max-w-md space-y-4">
+            <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
+              <h4 className="font-display text-base font-bold text-white">Reassign Courier Agent Stop</h4>
+              <button onClick={() => setReassignModal({ open: false, trackingId: "", agent: "" })} className="text-white/35 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div>
+              <label className="text-xs text-white/40 uppercase font-black block mb-1">Enter parcel tracking ID</label>
+              <input
+                type="text"
+                placeholder="e.g. AIP713672"
+                value={reassignModal.trackingId}
+                onChange={(e) => setReassignModal({ ...reassignModal, trackingId: e.target.value })}
+                className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-white/40 uppercase font-black block mb-1">Assign to Agent</label>
+              <select
+                value={reassignModal.agent}
+                onChange={(e) => setReassignModal({ ...reassignModal, agent: e.target.value })}
+                className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+              >
+                <option value="">Select agent...</option>
+                {staffList.map(s => (
+                  <option key={s.staff_id} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <Button size="sm" variant="ghost" onClick={() => setReassignModal({ open: false, trackingId: "", agent: "" })} className="text-white/45">
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleReassign} className="bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4">
+                Confirm Reassign
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Add / Edit Staff Modal */}
+      {staffModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <form onSubmit={handleStaffFormSubmit} className="rounded-2xl border border-white/[0.08] bg-[#0d0d16] p-6 w-full max-w-md space-y-4">
+            <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
+              <h4 className="font-display text-base font-bold text-white">
+                {editingStaffId ? "Edit Courier Staff Details" : "Register New Courier Agent"}
+              </h4>
+              <button type="button" onClick={() => setStaffModalOpen(false)} className="text-white/35 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Rahul Sharma"
+                  value={staffForm.name}
+                  onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="rahul@aipostal.com"
+                  value={staffForm.email}
+                  onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  placeholder="+91 98765 43210"
+                  value={staffForm.phone}
+                  onChange={(e) => setStaffForm({ ...staffForm, phone: e.target.value })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Assigned Zone</label>
+                  <select
+                    value={staffForm.assigned_zone}
+                    onChange={(e) => setStaffForm({ ...staffForm, assigned_zone: e.target.value })}
+                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-orange-500"
+                  >
+                    <option value="Delhi NCR">Delhi NCR</option>
+                    <option value="Mumbai Central">Mumbai Central</option>
+                    <option value="Bangalore Hub">Bangalore Hub</option>
+                    <option value="Pune GPO">Pune GPO</option>
+                    <option value="Hyderabad City">Hyderabad City</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Assigned Branch</label>
+                  <select
+                    value={staffForm.assigned_branch}
+                    onChange={(e) => setStaffForm({ ...staffForm, assigned_branch: e.target.value })}
+                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-orange-500"
+                  >
+                    <option value="Delhi NCR Hub">Delhi NCR Hub</option>
+                    <option value="Mumbai central GPO">Mumbai central GPO</option>
+                    <option value="Bangalore GPO">Bangalore GPO</option>
+                    <option value="Chennai Main GPO">Chennai Main GPO</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Agent Status</label>
+                <select
+                  value={staffForm.status}
+                  onChange={(e) => setStaffForm({ ...staffForm, status: e.target.value as any })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t border-white/[0.06]">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setStaffModalOpen(false)} className="text-white/45">
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4">
+                {editingStaffId ? "Save changes" : "Register Staff"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 3. Update Parcel Status Override Modal */}
+      {updateParcelModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <form onSubmit={handleUpdateParcelStatus} className="rounded-2xl border border-white/[0.08] bg-[#0d0d16] p-6 w-full max-w-md space-y-4">
+            <div className="flex justify-between items-center border-b border-white/[0.06] pb-3">
+              <h4 className="font-display text-base font-bold text-white">Manual Parcel Override</h4>
+              <button type="button" onClick={() => setUpdateParcelModal({ ...updateParcelModal, open: false })} className="text-white/35 hover:text-white">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Tracking ID</label>
+                <input
+                  type="text"
+                  disabled
+                  value={updateParcelModal.trackingId}
+                  className="w-full bg-[#0c0a15]/50 border border-white/10 rounded-xl px-4 py-2 text-sm text-white/40 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-white/40 uppercase font-black block mb-1">Status Description</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Arrived at Sorting Facility"
+                  value={updateParcelModal.statusText}
+                  onChange={(e) => setUpdateParcelModal({ ...updateParcelModal, statusText: e.target.value })}
+                  className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Manual Stage Override</label>
+                  <select
+                    value={updateParcelModal.stage}
+                    onChange={(e) => setUpdateParcelModal({ ...updateParcelModal, stage: Number(e.target.value) })}
+                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-orange-500"
+                  >
+                    <option value="1">Stage 1: Booked</option>
+                    <option value="2">Stage 2: Picked Up</option>
+                    <option value="3">Stage 3: At Source PO</option>
+                    <option value="4">Stage 4: In Transit</option>
+                    <option value="5">Stage 5: At Sorting Hub</option>
+                    <option value="6">Stage 6: Out for Delivery</option>
+                    <option value="7">Stage 7: Delivered</option>
+                    <option value="-1">Stage -1: Delivery Failed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs text-white/40 uppercase font-black block mb-1">Current Hub Location</label>
+                  <input
+                    type="text"
+                    placeholder="Delhi Hub / Recipient Address"
+                    value={updateParcelModal.location}
+                    onChange={(e) => setUpdateParcelModal({ ...updateParcelModal, location: e.target.value })}
+                    className="w-full bg-[#0c0a15] border border-white/10 rounded-xl px-4 py-2 text-sm text-white focus:border-orange-500 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t border-white/[0.06]">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setUpdateParcelModal({ ...updateParcelModal, open: false })} className="text-white/45">
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg px-4">
+                Update Status Override
+              </Button>
+            </div>
+          </form>
         </div>
       )}
     </DashboardLayout>

@@ -19,7 +19,7 @@ def generate_tracking_id() -> str:
     # E.g., AIP + 6 random digits
     return f"AIP{random.randint(100000, 999999)}"
 
-def create_parcel(parcel_data: Dict[str, Any], owner_payload: Dict[str, Any] | None = None) -> str:
+def create_parcel(parcel_data: Dict[str, Any], owner_payload: Optional[Dict[str, Any]] = None) -> str:
     tracking_id = generate_tracking_id()
 
     # Save the base parcel
@@ -32,6 +32,23 @@ def create_parcel(parcel_data: Dict[str, Any], owner_payload: Dict[str, Any] | N
         # Existing JWT uses `sub` as the email
         owner_email = owner_payload.get("sub")
         owner_id = owner_payload.get("sub")
+
+    duration_hours = float(parcel_data.get("duration_hours", 2.0))
+    eta_dt = created_at + datetime.timedelta(hours=duration_hours)
+    eta_str = eta_dt.strftime("%Y-%m-%d")
+
+    from app.services.pricing_service import calculate_pricing
+    dims = parcel_data.get("dimensions", {"l": 30.0, "w": 20.0, "h": 15.0})
+    smart_opts = parcel_data.get("smart_options", [])
+    pricing_breakdown = calculate_pricing(
+        weight=float(parcel_data.get("weight", 1.0)),
+        length=float(dims.get("l", 30.0)),
+        width=float(dims.get("w", 20.0)),
+        height=float(dims.get("h", 15.0)),
+        parcel_type=parcel_data.get("parcel_type", "standard"),
+        smart_options=smart_opts,
+        insurance=parcel_data.get("insurance", "standard")
+    )
 
     parcel_doc = {"owner_id": owner_id, "owner_email": owner_email,
         "tracking_id": tracking_id,
@@ -52,24 +69,38 @@ def create_parcel(parcel_data: Dict[str, Any], owner_payload: Dict[str, Any] | N
         "weight": float(parcel_data.get("weight", 1.0)),
         "parcel_type": parcel_data.get("parcel_type", "standard"),
         "declared_value": float(parcel_data.get("declared_value", 0.0)),
-        "category": parcel_data.get("category", "other"),
+        "category": parcel_data.get("final_category", parcel_data.get("category", "other")),
         "time_slot": parcel_data.get("time_slot", "Anytime"),
         "insurance": parcel_data.get("insurance", "standard"),
         
         "distance_km": float(parcel_data.get("distance_km", 0.0)),
-        "duration_hours": float(parcel_data.get("duration_hours", 0.0)),
+        "duration_hours": duration_hours,
         "duration_text": parcel_data.get("duration_text", "0 hrs"),
         "transit_days": parcel_data.get("transit_days", "Same day"),
         "route_coordinates": parcel_data.get("route_coordinates", []),
         
-        "price_total": float(parcel_data.get("price_total", 0.0)),
+        "price_total": pricing_breakdown["total"],
+        "pricing_breakdown": pricing_breakdown,
         "created_at": created_at,
+        "eta": eta_str,
         "manual_stage_override": None,
         "delivery_otp": str(random.randint(1000, 9999)),
-        "assigned_agent": "Rohan Sharma"
+        "assigned_agent": "Rohan Sharma",
+        
+        # New Category fields
+        "description": parcel_data.get("description", ""),
+        "ai_detected_category": parcel_data.get("ai_detected_category", "other"),
+        "final_category": parcel_data.get("final_category", "other"),
+        "confidence": float(parcel_data.get("confidence", 0.0)),
+        "dimensions": dims,
+        "smart_options": smart_opts
     }
     
     parcels_col.insert_one(parcel_doc)
+    
+    # Generate Pickup OTP
+    from app.services.otp_service import generate_otp
+    generate_otp(tracking_id, "pickup")
     
     # Save default route in route_history
     route_history_col = db_service.get_collection("route_history")
@@ -137,7 +168,7 @@ def create_parcel(parcel_data: Dict[str, Any], owner_payload: Dict[str, Any] | N
 
 def advance_tracking_stage(
     tracking_id: str,
-    user_payload: Dict[str, Any] | None = None,
+    user_payload: Optional[Dict[str, Any]] = None,
 ) -> Optional[int]:
     parcels_col = db_service.get_collection("parcels")
 
@@ -159,16 +190,51 @@ def advance_tracking_stage(
     else:
         next_stage = min(7, int(current_override) + 1)
 
+    now = datetime.datetime.now(datetime.timezone.utc)
+    duration_hours = float(parcel.get("duration_hours", 2.0))
+    created_at = parcel.get("created_at")
+    if created_at:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+    else:
+        created_at = now
+
+    if next_stage in (6, 7):
+        new_eta = now.strftime("%Y-%m-%d")
+    else:
+        new_eta = (created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
+
     parcels_col.update_one(
         {"tracking_id": tracking_id},
-        {"$set": {"manual_stage_override": next_stage}},
+        {"$set": {"manual_stage_override": next_stage, "eta": new_eta}},
     )
+
+    if next_stage == 6:
+        from app.services.otp_service import generate_otp
+        delivery_otp = generate_otp(tracking_id, "delivery")
+        
+        # Create user notification in notifications collection
+        notifications_col = db_service.get_collection("notifications")
+        import random
+        not_id = f"NOT{random.randint(100000, 999999)}"
+        notifications_col.insert_one({
+            "notification_id": not_id,
+            "user_id": parcel.get("owner_id"),
+            "user_email": parcel.get("owner_email"),
+            "tracking_id": tracking_id,
+            "title": "Delivery OTP Notification",
+            "message": f"Your parcel {tracking_id} is out for delivery. Please share OTP code {delivery_otp} with the delivery agent.",
+            "type": "delivery_otp",
+            "created_at": now,
+            "read": False
+        })
+
     return next_stage
 
 
 def get_tracking_info(
     tracking_id: str,
-    user_payload: Dict[str, Any] | None = None,
+    user_payload: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     parcels_col = db_service.get_collection("parcels")
     parcel = parcels_col.find_one({"tracking_id": tracking_id})
@@ -205,6 +271,22 @@ def get_tracking_info(
         current_stage_idx = simulated_stage_index
         
     current_stage = TRACKING_STAGES[current_stage_idx]
+
+    # Calculate latest ETA based on current status/override and update MongoDB
+    duration_hours = float(parcel.get("duration_hours", 2.0))
+    if current_stage_idx == 6: # Delivered
+        calculated_eta = now.strftime("%Y-%m-%d")
+    elif current_stage_idx == 5: # Out for Delivery
+        calculated_eta = now.strftime("%Y-%m-%d")
+    elif manual_override == -1: # Failed
+        calculated_eta = (created_at + datetime.timedelta(hours=duration_hours + 24.0)).strftime("%Y-%m-%d")
+    else:
+        calculated_eta = (created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
+
+    current_eta = parcel.get("eta")
+    if current_eta != calculated_eta:
+        parcels_col.update_one({"tracking_id": tracking_id}, {"$set": {"eta": calculated_eta}})
+        parcel["eta"] = calculated_eta
     
     # Extract route details
     route_coords = parcel.get("route_coordinates", [])
@@ -309,8 +391,11 @@ def get_tracking_info(
         })
         
     # 2. Add future predicted stages
-    # Estimated arrival time: created_at + duration_hours
-    predicted_arrival = created_at + datetime.timedelta(hours=parcel["duration_hours"])
+    # Estimated arrival time based on calculated_eta
+    try:
+        predicted_arrival = datetime.datetime.strptime(calculated_eta, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+    except Exception:
+        predicted_arrival = created_at + datetime.timedelta(hours=parcel.get("duration_hours", 2.0))
     for idx, stage_info in enumerate(TRACKING_STAGES):
         if stage_info["status"] not in completed_statuses:
             # Calculate a mock prediction time based on remaining duration
@@ -349,6 +434,91 @@ def get_tracking_info(
     # Format estimated delivery
     est_delivery_date = predicted_arrival.strftime("%Y-%m-%d")
 
+    # AI Delay Detection Check
+    # Condition: Current Date > ETA AND Status != Delivered
+    active_anomaly_doc = None
+    if current_stage["status"] != "Delivered":
+        current_date_str = now.strftime("%Y-%m-%d")
+        if current_date_str > est_delivery_date:
+            anomalies_col = db_service.get_collection("anomalies")
+            existing_anomaly = anomalies_col.find_one({"tracking_id": tracking_id, "resolved": False})
+            if existing_anomaly:
+                active_anomaly_doc = existing_anomaly
+            else:
+                anm_id = f"ANM{random.randint(100000, 999999)}"
+                new_anomaly = {
+                    "anomaly_id": anm_id,
+                    "tracking_id": tracking_id,
+                    "anomaly_type": "Delay",
+                    "severity": "High",
+                    "created_at": now,
+                    "resolved": False
+                }
+                anomalies_col.insert_one(new_anomaly)
+                active_anomaly_doc = new_anomaly
+                
+                # Create user notification in notifications collection
+                notifications_col = db_service.get_collection("notifications")
+                not_id = f"NOT{random.randint(100000, 999999)}"
+                notifications_col.insert_one({
+                    "notification_id": not_id,
+                    "user_id": parcel.get("owner_id"),
+                    "user_email": parcel.get("owner_email"),
+                    "tracking_id": tracking_id,
+                    "title": "Shipment Delay Alert",
+                    "message": f"Parcel {tracking_id} has exceeded its estimated delivery date ({est_delivery_date}). AI models predict a delivery delay.",
+                    "type": "delay_anomaly",
+                    "created_at": now,
+                    "read": False
+                })
+    else:
+        # Resolve anomalies if status is Delivered
+        anomalies_col = db_service.get_collection("anomalies")
+        anomalies_col.update_many({"tracking_id": tracking_id, "resolved": False}, {"$set": {"resolved": True}})
+
+    anomaly_data = None
+    if active_anomaly_doc:
+        anomaly_data = {
+            "anomaly_id": active_anomaly_doc["anomaly_id"],
+            "tracking_id": active_anomaly_doc["tracking_id"],
+            "anomaly_type": active_anomaly_doc["anomaly_type"],
+            "severity": active_anomaly_doc["severity"],
+            "created_at": active_anomaly_doc["created_at"].isoformat() if isinstance(active_anomaly_doc["created_at"], datetime.datetime) else str(active_anomaly_doc["created_at"]),
+            "resolved": active_anomaly_doc["resolved"]
+        }
+
+    # Generate Delivery OTP if current stage is Out for Delivery (index 5) and none exists
+    if current_stage_idx == 5:
+        from app.services.otp_service import generate_otp
+        otps_col = db_service.get_collection("otps")
+        existing_otp = otps_col.find_one({"tracking_id": tracking_id, "otp_type": "delivery", "verified": False})
+        if not existing_otp:
+            delivery_otp_code = generate_otp(tracking_id, "delivery")
+            
+            # Create user notification in notifications collection
+            notifications_col = db_service.get_collection("notifications")
+            import random
+            not_id = f"NOT{random.randint(100000, 999999)}"
+            notifications_col.insert_one({
+                "notification_id": not_id,
+                "user_id": parcel.get("owner_id"),
+                "user_email": parcel.get("owner_email"),
+                "tracking_id": tracking_id,
+                "title": "Delivery OTP Notification",
+                "message": f"Your parcel {tracking_id} is out for delivery. Please share OTP code {delivery_otp_code} with the delivery agent.",
+                "type": "delivery_otp",
+                "created_at": now,
+                "read": False
+            })
+
+    # Retrieve active unverified OTPs from database to show to the user
+    otps_col = db_service.get_collection("otps")
+    pickup_record = otps_col.find_one({"tracking_id": tracking_id, "otp_type": "pickup", "verified": False})
+    delivery_record = otps_col.find_one({"tracking_id": tracking_id, "otp_type": "delivery", "verified": False})
+    
+    pickup_otp_code = pickup_record["otp_code"] if pickup_record else None
+    delivery_otp_code = delivery_record["otp_code"] if delivery_record else None
+
     return {
         "tracking_id": tracking_id,
         "current_status": current_stage["status"],
@@ -372,12 +542,17 @@ def get_tracking_info(
             "dest_lat": parcel["dest_lat"],
             "dest_lng": parcel["dest_lng"],
             "route_coordinates": route_coords
-        }
+        },
+        "anomaly": anomaly_data,
+        "pickup_otp": pickup_otp_code,
+        "delivery_otp": delivery_otp_code
     }
 
 def _derive_parcel_status(current_status: str, estimated_delivery_str: str, delivered_status_name: str = "Delivered") -> str:
     if current_status == delivered_status_name:
         return "Delivered"
+    if current_status in ("Returned", "Delivery Failed", "Failed"):
+        return "Returned"
 
     # delayed if ETA date is in the past (and not delivered)
     try:
@@ -508,9 +683,29 @@ def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
 
-        # received/delivered by status delivered
+        # received/delivered by status delivered in current month only
         if p.get("status") == "Delivered":
-            received_count += 1
+            delivered_in_month = False
+            if p.get("delivery_date"):
+                try:
+                    # delivery_date is formatted as YYYY-MM-DD HH:MM or similar
+                    ddt = datetime.datetime.strptime(p["delivery_date"], "%Y-%m-%d %H:%M")
+                    dday = ddt.date()
+                    if first_day <= dday < next_month:
+                        delivered_in_month = True
+                except Exception:
+                    pass
+            if not delivered_in_month:
+                # fallback: check created_at if delivery_date parsing fails/is null
+                try:
+                    dt = datetime.datetime.fromisoformat(p["created_at"])
+                    day = dt.astimezone(datetime.timezone.utc).date()
+                    if first_day <= day < next_month:
+                        delivered_in_month = True
+                except Exception:
+                    pass
+            if delivered_in_month:
+                received_count += 1
 
     monthly_overview = [{"month": this_month_label, "sent": sent_count, "received": received_count}]
 
@@ -544,6 +739,24 @@ def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             next_eta = ""
 
+    # Fetch alerts (unresolved anomalies) for user's parcels
+    my_tracking_ids = [p["tracking_id"] for p in parcels if p.get("tracking_id")]
+    anomalies_col = db_service.get_collection("anomalies")
+    unresolved_anomalies = list(anomalies_col.find({"tracking_id": {"$in": my_tracking_ids}, "resolved": False}))
+    
+    alerts = []
+    for ua in unresolved_anomalies:
+        matching_parcel = next((p for p in parcels if p["tracking_id"] == ua["tracking_id"]), None)
+        alerts.append({
+            "anomaly_id": ua.get("anomaly_id"),
+            "tracking_id": ua.get("tracking_id"),
+            "anomaly_type": ua.get("anomaly_type"),
+            "severity": ua.get("severity"),
+            "created_at": ua.get("created_at").isoformat() if isinstance(ua.get("created_at"), datetime.datetime) else str(ua.get("created_at")),
+            "resolved": ua.get("resolved"),
+            "eta": matching_parcel.get("eta") if matching_parcel else ""
+        })
+
     return {
         "activeParcels": len(active),
         "deliveredParcels": len(delivered),
@@ -552,6 +765,7 @@ def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
         "weeklyActivity": weekly_activity,
         "monthlyOverview": monthly_overview,
         "nextEta": next_eta,
+        "alerts": alerts,
     }
 
 

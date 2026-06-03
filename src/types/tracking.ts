@@ -22,6 +22,20 @@ export interface ParcelDetails {
   weight: number;
   parcel_type: string;
   price_total: number;
+  source_lat: number;
+  source_lng: number;
+  dest_lat: number;
+  dest_lng: number;
+  route_coordinates: number[][];
+}
+
+export interface AnomalyInfo {
+  anomaly_id: string;
+  tracking_id: string;
+  anomaly_type: string;
+  severity: string;
+  created_at: string;
+  resolved: boolean;
 }
 
 export interface TrackingResponse {
@@ -35,4 +49,5 @@ export interface TrackingResponse {
   timeline: TimelineItem[];
   risk_info: RiskInfo;
   parcel_details: ParcelDetails;
+  anomaly?: AnomalyInfo | null;
 }

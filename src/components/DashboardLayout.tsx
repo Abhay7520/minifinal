@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Package,
   LayoutDashboard,
@@ -48,10 +48,18 @@ const roleLabels = { user: "User", staff: "Staff", admin: "Admin" };
 
 const DashboardLayout = ({ children, role }: DashboardLayoutProps) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
   const items = navItems[role];
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("role");
+    navigate("/", { replace: true });
+  };
 
   return (
     <div className="flex min-h-screen bg-[#050508]">
@@ -116,13 +124,13 @@ const DashboardLayout = ({ children, role }: DashboardLayoutProps) => {
 
         {/* Logout */}
         <div className="border-t border-white/[0.08] p-2">
-          <Link
-            to="/"
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white"
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white"
           >
             <LogOut className="h-5 w-5" />
             {!collapsed && "Logout"}
-          </Link>
+          </button>
         </div>
       </motion.aside>
 

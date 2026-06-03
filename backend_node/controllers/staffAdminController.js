@@ -99,4 +99,65 @@ router.post("/reassign-parcel", async (req, res) => {
   }
 });
 
+// POST /api/admin/staff
+router.post("/", async (req, res) => {
+  try {
+    const { name, email, phone, assigned_zone, assigned_branch, status } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "name is required" });
+    }
+    const staff_id = "ST-" + Math.floor(1000 + Math.random() * 9000);
+    const newStaff = new Staff({
+      staff_id,
+      name,
+      email: email || "",
+      phone: phone || "",
+      assigned_zone: assigned_zone || "Delhi NCR",
+      assigned_branch: assigned_branch || "Delhi NCR Hub",
+      status: status || "active"
+    });
+    await newStaff.save();
+    return res.status(201).json({ success: true, message: "Staff added successfully", data: newStaff });
+  } catch (error) {
+    console.error("Error creating staff:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PUT /api/admin/staff/:staff_id
+router.put("/:staff_id", async (req, res) => {
+  try {
+    const { staff_id } = req.params;
+    const { name, email, phone, assigned_zone, assigned_branch, status } = req.body;
+    
+    const updated = await Staff.findOneAndUpdate(
+      { staff_id },
+      { name, email, phone, assigned_zone, assigned_branch, status },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({ error: "Staff member not found" });
+    }
+    return res.status(200).json({ success: true, message: "Staff updated successfully", data: updated });
+  } catch (error) {
+    console.error("Error updating staff:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/admin/staff/:staff_id
+router.delete("/:staff_id", async (req, res) => {
+  try {
+    const { staff_id } = req.params;
+    const deleted = await Staff.findOneAndDelete({ staff_id });
+    if (!deleted) {
+      return res.status(404).json({ error: "Staff member not found" });
+    }
+    return res.status(200).json({ success: true, message: "Staff member deleted successfully", data: deleted });
+  } catch (error) {
+    console.error("Error deleting staff:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;

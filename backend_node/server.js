@@ -77,15 +77,33 @@ app.use("/api/admin", adminRouter);
 // DB Connection
 const mongoUri =
   process.env.MONGODB_URI ||
-  "mongodb+srv://postal_user:aipostal@cluster0.g0mulqc.mongodb.net/?appName=Cluster0";
+  "mongodb+srv://postal_user:aipostal@cluster0.g0mulqc.mongodb.net/aipostal?appName=Cluster0";
 
 console.log(`Attempting database connection to: ${mongoUri}...`);
 
 mongoose.connect(mongoUri, {
   serverSelectionTimeoutMS: 3000 // 3 seconds timeout
 })
-.then(() => {
+.then(async () => {
   console.log("Successfully connected to real MongoDB via Mongoose!");
+  try {
+    const db = mongoose.connection.db;
+    const count = await db.collection("settings").countDocuments({});
+    if (count === 0) {
+      await db.collection("settings").insertOne({
+        settings_id: "global",
+        system_status: "normal",
+        ai_confidence_threshold: 0.8,
+        delay_threshold_hours: 24,
+        auto_assign_agents: true,
+        maintenance_mode: false,
+        last_updated: new Date()
+      });
+      console.log("Seeded default system settings in MongoDB settings collection.");
+    }
+  } catch (err) {
+    console.error("Failed to seed default settings:", err);
+  }
 })
 .catch((err) => {
   console.warn("Mongoose MongoDB connection failed:", err.message);

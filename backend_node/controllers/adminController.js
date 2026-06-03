@@ -189,4 +189,325 @@ router.post("/incidents/resolve", async (req, res) => {
   }
 });
 
+// GET /api/admin/users
+router.get("/users", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json([]);
+    }
+    const db = mongoose.connection.db;
+    const users = await db.collection("users").find({}, { projection: { password_hash: 0 } }).toArray();
+    return res.status(200).json(users);
+  } catch (error) {
+    console.error("Error getting users:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/admin/users/status
+router.post("/users/status", async (req, res) => {
+  try {
+    const { email, status } = req.body;
+    if (!email || !status) {
+      return res.status(400).json({ error: "email and status are required" });
+    }
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(400).json({ error: "Database offline" });
+    }
+    const db = mongoose.connection.db;
+    const result = await db.collection("users").updateOne(
+      { email },
+      { $set: { status } }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    return res.status(200).json({ success: true, message: `User status updated to ${status}` });
+  } catch (error) {
+    console.error("Error updating user status:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// DELETE /api/admin/users/:email
+router.delete("/users/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(400).json({ error: "Database offline" });
+    }
+    const db = mongoose.connection.db;
+    const result = await db.collection("users").deleteOne({ email });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    return res.status(200).json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/admin/parcels
+router.get("/parcels", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json([]);
+    }
+    const db = mongoose.connection.db;
+    const { search, status, delayed } = req.query;
+    
+    let query = {};
+    if (search) {
+      query["$or"] = [
+        { tracking_id: { $regex: search, $options: "i" } },
+        { receiver_name: { $regex: search, $options: "i" } },
+        { sender_name: { $regex: search, $options: "i" } }
+      ];
+    }
+    
+    if (status) {
+      query["manual_stage_override"] = Number(status);
+    }
+    
+    if (delayed === "true") {
+      const nowStr = new Date().toISOString().split('T')[0];
+      query["$or"] = [
+        { manual_stage_override: -1 },
+        {
+          eta: { $lt: nowStr },
+          manual_stage_override: { $ne: 7 }
+        }
+      ];
+    }
+    
+    const parcels = await db.collection("parcels").find(query).sort({ created_at: -1 }).toArray();
+    return res.status(200).json(parcels);
+  } catch (error) {
+    console.error("Error getting parcels:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/admin/parcels/status
+router.post("/parcels/status", async (req, res) => {
+  try {
+    const { tracking_id, status_text, manual_stage_override, current_location_name } = req.body;
+    if (!tracking_id || manual_stage_override === undefined) {
+      return res.status(400).json({ error: "tracking_id and manual_stage_override are required" });
+    }
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(400).json({ error: "Database offline" });
+    }
+    const db = mongoose.connection.db;
+    const parcel = await db.collection("parcels").findOne({ tracking_id });
+    if (!parcel) {
+      return res.status(404).json({ error: "Parcel not found" });
+    }
+    
+    const now = new Date();
+    const stage = Number(manual_stage_override);
+    
+    let updateFields = { manual_stage_override: stage };
+    if (stage === 7) {
+      updateFields.eta = now.toISOString().split('T')[0];
+    }
+    await db.collection("parcels").updateOne({ tracking_id }, { $set: updateFields });
+    
+    let progress_percentage = 5;
+    if (stage === 7) progress_percentage = 100;
+    else if (stage === -1) progress_percentage = 55;
+    else if (stage === 6) progress_percentage = 90;
+    else if (stage === 2) progress_percentage = 20;
+    else if (stage === 3) progress_percentage = 35;
+    else if (stage === 4) progress_percentage = 55;
+    else if (stage === 5) progress_percentage = 75;
+    
+    await db.collection("shipment_status").updateOne(
+      { tracking_id },
+      {
+        $set: {
+          status: status_text || "Updated by Admin",
+          progress_percentage,
+          current_location_name: current_location_name || parcel.current_location_name || parcel.source_po || "Sorting Hub",
+          last_updated: now
+        }
+      },
+      { upsert: true }
+    );
+    
+    await db.collection("tracking_history").insertOne({
+      tracking_id,
+      status: status_text || "Updated by Admin",
+      timestamp: now,
+      location: current_location_name || "Admin Logistics Control Center",
+      details: `Shipment status manually updated by Logistics Admin to '${status_text || "Updated"}' (Stage override: ${stage}).`
+    });
+    
+    return res.status(200).json({ success: true, message: "Parcel status updated successfully" });
+  } catch (error) {
+    console.error("Error updating parcel status:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/admin/analytics/stats
+router.get("/analytics/stats", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json({
+        totalUsers: 0, totalStaff: 0, totalParcels: 0, activeParcels: 0,
+        deliveredParcels: 0, delayedParcels: 0, revenue: 0, monthlyTrends: []
+      });
+    }
+    const db = mongoose.connection.db;
+    
+    const totalUsers = await db.collection("users").countDocuments({ role: "user" });
+    const totalStaff = await db.collection("staffs").countDocuments({});
+    const totalParcels = await db.collection("parcels").countDocuments({});
+    
+    const activeParcels = await db.collection("parcels").countDocuments({
+      manual_stage_override: { $nin: [7, -1] }
+    });
+    
+    const deliveredParcels = await db.collection("parcels").countDocuments({
+      manual_stage_override: 7
+    });
+    
+    const nowStr = new Date().toISOString().split('T')[0];
+    const delayedParcels = await db.collection("parcels").countDocuments({
+      $or: [
+        { manual_stage_override: -1 },
+        {
+          eta: { $lt: nowStr },
+          manual_stage_override: { $ne: 7 }
+        }
+      ]
+    });
+    
+    const revRes = await db.collection("parcels").aggregate([
+      { $group: { _id: null, total: { $sum: "$price_total" } } }
+    ]).toArray();
+    const revenue = revRes[0]?.total || 0;
+    
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const trends = await db.collection("parcels").aggregate([
+      {
+        $group: {
+          _id: { $month: "$created_at" },
+          count: { $sum: 1 },
+          revenue: { $sum: "$price_total" }
+        }
+      },
+      { $sort: { "_id": 1 } }
+    ]).toArray();
+    
+    const monthlyTrends = trends.map(t => ({
+      name: monthNames[t._id - 1] || `Month ${t._id}`,
+      parcels: t.count,
+      revenue: t.revenue
+    }));
+    
+    if (monthlyTrends.length === 0) {
+      monthlyTrends.push(
+        { name: "Jan", parcels: 0, revenue: 0 },
+        { name: "Feb", parcels: 0, revenue: 0 },
+        { name: "Mar", parcels: 0, revenue: 0 },
+        { name: "Apr", parcels: 0, revenue: 0 },
+        { name: "May", parcels: 0, revenue: 0 },
+        { name: "Jun", parcels: totalParcels, revenue: revenue }
+      );
+    }
+    
+    return res.status(200).json({
+      totalUsers,
+      totalStaff,
+      totalParcels,
+      activeParcels,
+      deliveredParcels,
+      delayedParcels,
+      revenue,
+      monthlyTrends
+    });
+  } catch (error) {
+    console.error("Error getting analytics stats:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/admin/ai-monitoring
+router.get("/ai-monitoring", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json({ anomalies: [], fraudAlerts: [], predictions: [], validationLogs: [] });
+    }
+    const db = mongoose.connection.db;
+    
+    const anomalies = await db.collection("anomalies").find().sort({ created_at: -1 }).limit(30).toArray();
+    const predictions = await db.collection("risk_predictions").find().sort({ created_at: -1 }).limit(30).toArray();
+    const validationLogs = await db.collection("otps").find().sort({ verified_at: -1, expiry: -1 }).limit(30).toArray();
+    
+    const fraudAlerts = await db.collection("anomalies").find({
+      anomaly_type: { $in: ["Fraud", "Tampering", "Security"] }
+    }).sort({ created_at: -1 }).toArray();
+    
+    return res.status(200).json({
+      anomalies,
+      fraudAlerts,
+      predictions,
+      validationLogs
+    });
+  } catch (error) {
+    console.error("Error fetching AI monitoring data:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /api/admin/settings
+router.get("/settings", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json({
+        system_status: "normal", ai_confidence_threshold: 0.8,
+        delay_threshold_hours: 24, auto_assign_agents: true, maintenance_mode: false
+      });
+    }
+    const db = mongoose.connection.db;
+    const settings = await db.collection("settings").findOne({ settings_id: "global" });
+    return res.status(200).json(settings || {});
+  } catch (error) {
+    console.error("Error getting system settings:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/admin/settings
+router.post("/settings", async (req, res) => {
+  try {
+    const { system_status, ai_confidence_threshold, delay_threshold_hours, auto_assign_agents, maintenance_mode } = req.body;
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(400).json({ error: "Database offline" });
+    }
+    const db = mongoose.connection.db;
+    await db.collection("settings").updateOne(
+      { settings_id: "global" },
+      {
+        $set: {
+          system_status: system_status || "normal",
+          ai_confidence_threshold: Number(ai_confidence_threshold || 0.8),
+          delay_threshold_hours: Number(delay_threshold_hours || 24),
+          auto_assign_agents: !!auto_assign_agents,
+          maintenance_mode: !!maintenance_mode,
+          last_updated: new Date()
+        }
+      },
+      { upsert: true }
+    );
+    return res.status(200).json({ success: true, message: "System settings updated successfully" });
+  } catch (error) {
+    console.error("Error saving system settings:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;

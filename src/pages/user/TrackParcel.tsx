@@ -241,6 +241,33 @@ export default function TrackParcel() {
 
       {trackingData ? (
         <>
+          {/* AI Delay Detection Tracking Alert */}
+          {trackingData.anomaly && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 backdrop-blur-sm flex items-start gap-3"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/20 text-red-400 border border-red-500/30">
+                <AlertTriangle className="h-5 w-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-red-400">
+                    AI Delay Detection Alert
+                  </span>
+                  <span className="rounded bg-red-500/25 px-1.5 py-0.5 text-[9px] font-bold text-red-200">
+                    {trackingData.anomaly.anomaly_id}
+                  </span>
+                </div>
+                <h4 className="text-sm font-bold text-white mt-1">Delayed Shipment Anomaly Detected</h4>
+                <p className="text-xs text-white/60 mt-0.5 leading-relaxed">
+                  Our delay prediction model has flagged this parcel because the current date has exceeded the estimated delivery date ({trackingData.estimated_delivery}) while status remains "{trackingData.current_status}". A High severity anomaly record has been registered.
+                </p>
+              </div>
+            </motion.div>
+          )}
+
           {/* Tracking Overview */}
           <div className="mb-8 rounded-2xl border border-white/10 bg-gradient-to-br from-orange-500/10 via-violet-500/10 to-[#0e0c18]/40 p-6 backdrop-blur-md relative overflow-hidden">
             <div className="absolute inset-0 opacity-[0.02] bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white via-transparent to-transparent pointer-events-none" />

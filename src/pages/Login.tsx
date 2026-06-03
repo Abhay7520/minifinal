@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Package, Mail, Lock, ArrowRight, Zap } from "lucide-react";
+import { Package, Mail, Lock, ArrowRight, Zap, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,9 +19,27 @@ const Login = () => {
   const navigate = useNavigate();
   const cfg = roleConfig[role];
 
-  const handleLogin = (e: React.FormEvent) => {
+  const [email, setEmail] = useState("demo@aipostal.com");
+  const [password, setPassword] = useState("password");
+  const [error, setError] = useState("");
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate(`/${role}/dashboard`);
+    setError("");
+    try {
+      const { apiPost } = await import("@/lib/api");
+      const res = await apiPost<{ token: string; role: string; email: string; name: string }>("/auth/login", {
+        role,
+        email,
+        password,
+      });
+      localStorage.setItem("token", res.token);
+      localStorage.setItem("userName", res.name || email.split("@")[0]);
+      localStorage.setItem("role", res.role);
+      navigate(`/${res.role}/dashboard`);
+    } catch (err: any) {
+      setError(err?.message || "Invalid credentials");
+    }
   };
 
   return (
@@ -160,6 +178,21 @@ const Login = () => {
             </motion.div>
           </AnimatePresence>
 
+          {/* Error message */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -8, height: 0 }}
+                className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              >
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <form onSubmit={handleLogin} className="mt-6 space-y-4">
             <div>
               <Label htmlFor="email" className="text-sm font-semibold text-white/70">Email</Label>
@@ -170,7 +203,8 @@ const Login = () => {
                   type="email"
                   placeholder="you@example.com"
                   className="border-white/10 bg-white/5 pl-10 text-white placeholder:text-white/25 focus:border-orange-500/50 focus:ring-orange-500/20 focus-visible:ring-orange-500/20"
-                  defaultValue="demo@aipostal.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
             </div>
@@ -187,7 +221,8 @@ const Login = () => {
                   type="password"
                   placeholder="••••••••"
                   className="border-white/10 bg-white/5 pl-10 text-white placeholder:text-white/25 focus:border-orange-500/50 focus:ring-orange-500/20 focus-visible:ring-orange-500/20"
-                  defaultValue="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
             </div>

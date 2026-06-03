@@ -64,6 +64,12 @@ def get_assigned_deliveries(agent_name: str) -> List[Dict[str, Any]]:
         elapsed = (now - created_at_aware).total_seconds()
         sim_stage = min(6, int(elapsed // STAGE_DURATION_SECONDS))
         
+        current_stage = 1
+        if override is not None:
+            current_stage = int(override)
+        else:
+            current_stage = sim_stage + 1
+
         if override is not None:
             if override == -1:
                 progress = 55 # Stalled In Transit
@@ -90,7 +96,8 @@ def get_assigned_deliveries(agent_name: str) -> List[Dict[str, Any]]:
             "weight": float(parcel.get("weight", 1.0)),
             "priority": "High" if parcel.get("parcel_type") in ["express", "sameday", "fragile"] else "Standard",
             "progress": progress,
-            "price": float(parcel.get("price_total", 0.0))
+            "price": float(parcel.get("price_total", 0.0)),
+            "current_stage": current_stage
         }
         
         if status == "delivered":
@@ -124,7 +131,8 @@ def get_assigned_deliveries(agent_name: str) -> List[Dict[str, Any]]:
                 "weight": 2.5,
                 "priority": "High",
                 "progress": 100,
-                "price": 320.0
+                "price": 320.0,
+                "current_stage": 7
             },
             {
                 "id": "AIP-20260012",
@@ -140,7 +148,8 @@ def get_assigned_deliveries(agent_name: str) -> List[Dict[str, Any]]:
                 "weight": 1.2,
                 "priority": "Standard",
                 "progress": 65,
-                "price": 185.0
+                "price": 185.0,
+                "current_stage": 6
             }
         ]
         
@@ -162,59 +171,97 @@ def verify_delivery_otp(tracking_id: str, otp: str) -> Dict[str, Any]:
         if tracking_id.startswith("AIP-"):
             return {"success": True, "message": "Delivery confirmed (Mock Mode)"}
         return {"success": False, "message": "Parcel tracking ID not found"}
+
+    # Determine current stage override
+    override = parcel.get("manual_stage_override")
+    
+    # We default stage 1 if manual_stage_override is None/1
+    current_stage = 1
+    if override is not None:
+        current_stage = int(override)
         
-    db_otp = parcel.get("delivery_otp")
-    if not db_otp:
-        # Seed default OTP if missing
-        db_otp = "4829"
-        parcels_col.update_one({"tracking_id": tracking_id}, {"$set": {"delivery_otp": db_otp}})
+    if current_stage == 1:
+        otp_type = "pickup"
+    elif current_stage == 6:
+        otp_type = "delivery"
+    else:
+        return {"success": False, "message": f"OTP verification is not applicable for current stage: {current_stage}"}
         
-    if db_otp != otp and otp != "4829": # Backdoor/default test OTP
-        return {"success": False, "message": "Incorrect OTP code. Please retry validation."}
+    from app.services.otp_service import verify_otp
+    verify_res = verify_otp(tracking_id, otp, otp_type)
+    if not verify_res.get("success"):
+        return verify_res
         
+    # Verification succeeded! Update parcel status automatically in MongoDB
     now = datetime.datetime.now(datetime.timezone.utc)
     
-    # 1. Update manual stage override to 7 (Delivered)
-    parcels_col.update_one(
-        {"tracking_id": tracking_id},
-        {"$set": {"manual_stage_override": 7}}
-    )
-    
-    # 2. Update shipment_status
-    shipment_status_col = db_service.get_collection("shipment_status")
-    shipment_status_col.update_one(
-        {"tracking_id": tracking_id},
-        {"$set": {
+    if otp_type == "pickup":
+        # 1. Update manual stage override to 2 (Picked Up / Parcel Received)
+        parcels_col.update_one(
+            {"tracking_id": tracking_id},
+            {"$set": {"manual_stage_override": 2}}
+        )
+        
+        # 2. Update shipment_status
+        shipment_status_col = db_service.get_collection("shipment_status")
+        shipment_status_col.update_one(
+            {"tracking_id": tracking_id},
+            {"$set": {
+                "status": "Picked Up",
+                "progress_percentage": 20,
+                "current_location_name": parcel.get("source_po", "Source PO"),
+                "current_location_lat": float(parcel.get("source_lat", 0.0)),
+                "current_location_lng": float(parcel.get("source_lng", 0.0)),
+                "last_updated": now
+            }},
+            upsert=True
+        )
+        
+        # 3. Add to tracking_history
+        tracking_history_col = db_service.get_collection("tracking_history")
+        tracking_history_col.insert_one({
+            "tracking_id": tracking_id,
+            "status": "Picked Up",
+            "timestamp": now,
+            "location": parcel.get("source_po", "Source PO"),
+            "details": "Pickup confirmed successfully. Package handed over to agent Rohan Sharma."
+        })
+        
+        return {"success": True, "message": "Pickup OTP verified. Parcel status updated to Parcel Received."}
+        
+    else: # otp_type == "delivery"
+        # 1. Update manual stage override to 7 (Delivered)
+        parcels_col.update_one(
+            {"tracking_id": tracking_id},
+            {"$set": {"manual_stage_override": 7, "eta": now.strftime("%Y-%m-%d")}}
+        )
+        
+        # 2. Update shipment_status
+        shipment_status_col = db_service.get_collection("shipment_status")
+        shipment_status_col.update_one(
+            {"tracking_id": tracking_id},
+            {"$set": {
+                "status": "Delivered",
+                "progress_percentage": 100,
+                "current_location_name": "Delivered at Destination",
+                "current_location_lat": float(parcel.get("dest_lat", 0.0)),
+                "current_location_lng": float(parcel.get("dest_lng", 0.0)),
+                "last_updated": now
+            }},
+            upsert=True
+        )
+        
+        # 3. Add to tracking_history
+        tracking_history_col = db_service.get_collection("tracking_history")
+        tracking_history_col.insert_one({
+            "tracking_id": tracking_id,
             "status": "Delivered",
-            "progress_percentage": 100,
-            "current_location_name": "Delivered at Destination",
-            "current_location_lat": float(parcel.get("dest_lat", 0.0)),
-            "current_location_lng": float(parcel.get("dest_lng", 0.0)),
-            "last_updated": now
-        }},
-        upsert=True
-    )
-    
-    # 3. Add to tracking_history
-    tracking_history_col = db_service.get_collection("tracking_history")
-    tracking_history_col.insert_one({
-        "tracking_id": tracking_id,
-        "status": "Delivered",
-        "timestamp": now,
-        "location": "Recipient Address",
-        "details": "Delivery confirmed successfully. Recipient signature recorded via OTP."
-    })
-    
-    # 4. Log in otp_logs
-    otp_logs_col = db_service.get_collection("otp_logs")
-    otp_logs_col.insert_one({
-        "tracking_id": tracking_id,
-        "otp": otp,
-        "verified_at": now,
-        "status": "success"
-    })
-    
-    return {"success": True, "message": "Delivery verified and marked as Delivered in MongoDB"}
+            "timestamp": now,
+            "location": "Recipient Address",
+            "details": "Delivery confirmed successfully. Recipient signature verified via OTP."
+        })
+        
+        return {"success": True, "message": "Delivery OTP verified. Parcel status updated to Delivered."}
 
 def mark_delivery_failed(tracking_id: str, reason: str) -> Dict[str, Any]:
     parcels_col = db_service.get_collection("parcels")
@@ -228,7 +275,7 @@ def mark_delivery_failed(tracking_id: str, reason: str) -> Dict[str, Any]:
     # 1. Update manual override to -1 (Failed)
     parcels_col.update_one(
         {"tracking_id": tracking_id},
-        {"$set": {"manual_stage_override": -1}}
+        {"$set": {"manual_stage_override": -1, "eta": (now + datetime.timedelta(days=1)).strftime("%Y-%m-%d")}}
     )
     
     # 2. Update shipment status
@@ -283,7 +330,7 @@ def reattempt_delivery(tracking_id: str) -> Dict[str, Any]:
     # Reset manual stage to 6 (Out for Delivery)
     parcels_col.update_one(
         {"tracking_id": tracking_id},
-        {"$set": {"manual_stage_override": 6}}
+        {"$set": {"manual_stage_override": 6, "eta": now.strftime("%Y-%m-%d")}}
     )
     
     shipment_status_col = db_service.get_collection("shipment_status")
@@ -409,4 +456,49 @@ def get_optimized_route(agent_name: str) -> Dict[str, Any]:
         "total_distance_km": round(total_dist, 2),
         "duration_text": format_duration(hours),
         "polyline": full_coords
+    }
+
+def regenerate_otp(tracking_id: str) -> Dict[str, Any]:
+    parcels_col = db_service.get_collection("parcels")
+    parcel = parcels_col.find_one({"tracking_id": tracking_id})
+    if not parcel:
+        if tracking_id.startswith("AIP-"):
+            return {"success": True, "otp_code": "4829", "message": "New OTP generated successfully (Mock Mode)"}
+        return {"success": False, "message": "Parcel not found"}
+        
+    override = parcel.get("manual_stage_override")
+    current_stage = 1
+    if override is not None:
+        current_stage = int(override)
+        
+    if current_stage == 1:
+        otp_type = "pickup"
+    elif current_stage == 6:
+        otp_type = "delivery"
+    else:
+        return {"success": False, "message": f"OTP regeneration is not applicable for current stage: {current_stage}"}
+        
+    from app.services.otp_service import generate_otp
+    new_otp = generate_otp(tracking_id, otp_type, force_regenerate=True)
+    
+    if otp_type == "delivery":
+        notifications_col = db_service.get_collection("notifications")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        not_id = f"NOT{random.randint(100000, 999999)}"
+        notifications_col.insert_one({
+            "notification_id": not_id,
+            "user_id": parcel.get("owner_id"),
+            "user_email": parcel.get("owner_email"),
+            "tracking_id": tracking_id,
+            "title": "Delivery OTP Notification (Regenerated)",
+            "message": f"Your parcel {tracking_id} is out for delivery. Please share OTP code {new_otp} with the delivery agent.",
+            "type": "delivery_otp",
+            "created_at": now,
+            "read": False
+        })
+        
+    return {
+        "success": True,
+        "otp_code": new_otp,
+        "message": f"New {otp_type} OTP generated successfully."
     }

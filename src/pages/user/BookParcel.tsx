@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageBackground from "@/components/PageBackground";
@@ -10,7 +10,7 @@ import { validateAddresses } from "@/services/addressService";
 import { predictEta } from "@/services/etaService";
 import type { AddressSuggestion, ValidateAddressResponse } from "@/types/address";
 import type { PredictEtaResponse } from "@/types/eta";
-import { ApiError } from "@/lib/api";
+import { ApiError, apiPost } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,6 +118,12 @@ const BookParcel = () => {
   const [declaredValue, setDeclaredValue] = useState(4500);
   const [description, setDescription] = useState("Electronics - laptop charger");
 
+  // New Category states
+  const [aiCategory, setAiCategory] = useState("electronics");
+  const [aiConfidence, setAiConfidence] = useState(0.95);
+  const [isAiDetecting, setIsAiDetecting] = useState(false);
+  const [isOverridden, setIsOverridden] = useState(false);
+
   // Step 3
   const [smartOpts, setSmartOpts] = useState<Record<SmartOptId, boolean>>(() => {
     const init = {} as Record<SmartOptId, boolean>;
@@ -142,32 +148,93 @@ const BookParcel = () => {
   // Step 5
   const [agreed, setAgreed] = useState(false);
 
-  const volumetric = useMemo(
-    () => +((dims.l * dims.w * dims.h) / 5000).toFixed(2),
-    [dims]
-  );
-  const chargeableWeight = Math.max(weight, volumetric);
+  // Centralized Pricing Breakdown State
+  const [pricingBreakdown, setPricingBreakdown] = useState<{
+    volumetric_weight: number;
+    chargeable_weight: number;
+    base_fare: number;
+    weight_charge: number;
+    addons_charge: number;
+    insurance_charge: number;
+    subtotal: number;
+    gst: number;
+    total: number;
+  } | null>(null);
 
-  const addOnsTotal = useMemo(
-    () =>
-      SMART_OPTIONS.filter((o) => smartOpts[o.id]).reduce((s, o) => s + o.price, 0),
-    [smartOpts]
-  );
+  const activeSmartOptsList = useMemo(() => {
+    return Object.keys(smartOpts).filter((k) => smartOpts[k as SmartOptId]);
+  }, [smartOpts]);
 
-  const typeMultiplier: Record<string, number> = {
-    standard: 1,
-    express: 1.6,
-    sameday: 2.2,
-    fragile: 1.3,
-    document: 0.7,
+  // Effect to fetch centralized pricing breakdown from backend
+  useEffect(() => {
+    let cancelled = false;
+    async function updatePrice() {
+      try {
+        const res = await apiPost<any>("/calculate-price", {
+          weight,
+          length: dims.l,
+          width: dims.w,
+          height: dims.h,
+          parcel_type: parcelType,
+          smart_options: activeSmartOptsList,
+          insurance,
+        });
+        if (cancelled) return;
+        setPricingBreakdown(res);
+      } catch (err) {
+        console.error("Pricing calculation failed", err);
+      }
+    }
+    updatePrice();
+    return () => {
+      cancelled = true;
+    };
+  }, [weight, dims, parcelType, activeSmartOptsList, insurance]);
+
+  const volumetric = pricingBreakdown?.volumetric_weight ?? +((dims.l * dims.w * dims.h) / 5000).toFixed(2);
+  const chargeableWeight = pricingBreakdown?.chargeable_weight ?? Math.max(weight, volumetric);
+  const baseFare = pricingBreakdown?.base_fare ?? 60;
+  const weightCharge = pricingBreakdown?.weight_charge ?? 0;
+  const addOnsTotal = pricingBreakdown?.addons_charge ?? 0;
+  const insuranceCharge = pricingBreakdown?.insurance_charge ?? 0;
+  const subtotal = pricingBreakdown?.subtotal ?? 0;
+  const gst = pricingBreakdown?.gst ?? 0;
+  const total = pricingBreakdown?.total ?? 0;
+
+  // Trigger AI Category prediction on description change
+  const handleDescriptionChange = async (val: string) => {
+    setDescription(val);
+    if (val.trim().length > 3) {
+      setIsAiDetecting(true);
+      try {
+        const res = await apiPost<{ category: string; confidence: number }>("/predict-category", { description: val });
+        setAiCategory(res.category);
+        setAiConfidence(res.confidence);
+        if (!isOverridden) {
+          setCategory(res.category);
+        }
+      } catch (err) {
+        console.error("AI Category Prediction failed", err);
+      } finally {
+        setIsAiDetecting(false);
+      }
+    } else {
+      setAiCategory("other");
+      setAiConfidence(0.50);
+      if (!isOverridden) {
+        setCategory("other");
+      }
+    }
   };
 
-  const baseFare = 60;
-  const weightCharge = Math.round(chargeableWeight * 40 * (typeMultiplier[parcelType] ?? 1));
-  const insuranceCharge = INSURANCE[insurance].price;
-  const subtotal = baseFare + weightCharge + addOnsTotal + insuranceCharge;
-  const gst = Math.round(subtotal * 0.18);
-  const total = subtotal + gst;
+  const handleCategoryChange = (val: string) => {
+    setCategory(val);
+    if (val !== aiCategory) {
+      setIsOverridden(true);
+    } else {
+      setIsOverridden(false);
+    }
+  };
 
   const handleValidate = async () => {
     if (!sourceAddress.trim() || !destAddress.trim()) {
@@ -328,6 +395,8 @@ const BookParcel = () => {
       ? ["Low", "Medium", "High"][Math.floor(Math.random() * 3)] 
       : "Low";
 
+    const activeSmartOpts = Object.keys(smartOpts).filter((k) => smartOpts[k as SmartOptId]);
+
     const bookingData = {
       sender_name: senderName,
       sender_phone: senderPhone,
@@ -358,7 +427,15 @@ const BookParcel = () => {
       
       price_total: total,
       weather: simulatedWeather,
-      congestion: simulatedCongestion
+      congestion: simulatedCongestion,
+
+      // New fields
+      description: description,
+      ai_detected_category: aiCategory,
+      final_category: category,
+      confidence: aiConfidence,
+      dimensions: dims,
+      smart_options: activeSmartOpts
     };
     
     sessionStorage.setItem("pending_booking", JSON.stringify(bookingData));
@@ -760,57 +837,85 @@ const BookParcel = () => {
                     </div>
                   </Field>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field label="Contents Category">
-                      <Select value={category} onValueChange={setCategory}>
-                        <SelectTrigger className={selectCls}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-white/10 bg-[#111114] text-white rounded-xl">
-                          {["Electronics", "Documents", "Apparel", "Food", "Medicine", "Other"].map(
-                            (c) => (
-                              <SelectItem
-                                key={c}
-                                value={c.toLowerCase()}
-                                className="focus:bg-white/10 focus:text-white"
-                              >
-                                {c}
-                              </SelectItem>
-                            )
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <button
-                        type="button"
-                        onClick={() => setCategory("electronics")}
-                        className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-violet-300 hover:bg-violet-500/20"
-                      >
-                        <Wand2 className="h-3 w-3" /> AI Auto-detect from description
-                      </button>
-                    </Field>
-
-                    <Field label="Declared Value (₹) · for insurance">
-                      <div className="relative">
-                        <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60" />
-                        <Input
-                          type="number"
-                          value={declaredValue}
-                          onChange={(e) => setDeclaredValue(+e.target.value || 0)}
-                          className={`pl-10 ${inputCls}`}
-                        />
-                      </div>
-                    </Field>
-                  </div>
+                  <Field label="Declared Value (₹) · for insurance">
+                    <div className="relative">
+                      <IndianRupee className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-400/60" />
+                      <Input
+                        type="number"
+                        value={declaredValue}
+                        onChange={(e) => setDeclaredValue(+e.target.value || 0)}
+                        className={`pl-10 ${inputCls}`}
+                      />
+                    </div>
+                  </Field>
 
                   <Field label="Description">
                     <div className="relative">
                       <FileText className="absolute left-3.5 top-3.5 h-4 w-4 text-white/30" />
                       <Textarea
+                        placeholder="Describe what is inside the parcel (e.g. laptop charger, books, clothes)..."
                         className={`pl-10 min-h-[80px] resize-none ${inputCls}`}
                         value={description}
-                        onChange={(e) => setDescription(e.target.value)}
+                        onChange={(e) => handleDescriptionChange(e.target.value)}
                       />
                     </div>
+                  </Field>
+
+                  <div className="rounded-xl border border-violet-500/20 bg-gradient-to-r from-violet-500/10 via-orange-500/5 to-transparent p-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/20 text-violet-400 border border-violet-500/30">
+                        <Brain className={`h-5 w-5 ${isAiDetecting ? "animate-pulse" : ""}`} />
+                      </div>
+                      <div>
+                        <h5 className="text-[10px] font-bold uppercase tracking-wider text-violet-400">AI Contents Detection</h5>
+                        <p className="text-sm font-semibold text-white mt-0.5">
+                          {isAiDetecting ? "AI is analyzing description..." : `Detected Category: ${aiCategory.charAt(0).toUpperCase() + aiCategory.slice(1)}`}
+                        </p>
+                      </div>
+                    </div>
+                    {!isAiDetecting && (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-white/45 bg-white/5 px-2 py-1 rounded border border-white/10">
+                        {Math.round(aiConfidence * 100)}% Confidence
+                      </span>
+                    )}
+                  </div>
+
+                  <Field label="Contents Category">
+                    <Select value={category} onValueChange={handleCategoryChange}>
+                      <SelectTrigger className={selectCls}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="border-white/10 bg-[#111114] text-white rounded-xl">
+                        {["Electronics", "Documents", "Apparel", "Food", "Medicine", "Other"].map(
+                          (c) => (
+                            <SelectItem
+                              key={c}
+                              value={c.toLowerCase()}
+                              className="focus:bg-white/10 focus:text-white"
+                            >
+                              {c}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {isOverridden && (
+                      <div className="mt-2 flex items-center justify-between text-xs text-orange-400/80">
+                        <span className="flex items-center gap-1.5">
+                          <span>⚠️</span> Manually overridden category from AI suggestion
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCategory(aiCategory);
+                            setIsOverridden(false);
+                          }}
+                          className="font-bold text-violet-400 hover:underline"
+                        >
+                          Reset to AI Detection
+                        </button>
+                      </div>
+                    )}
                   </Field>
 
                   <NavRow>

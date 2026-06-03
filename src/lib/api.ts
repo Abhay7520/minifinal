@@ -1,5 +1,10 @@
-export const NODE_BACKEND_URL = "https://minifinal-a22h.onrender.com"; 
-export const AI_BACKEND_URL = "https://minifinal-1.onrender.com";    
+export const NODE_BACKEND_URL = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:5000"
+  : "https://minifinal-a22h.onrender.com"; 
+
+export const AI_BACKEND_URL = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:8000"
+  : "https://minifinal-1.onrender.com";    
 
 export class ApiError extends Error {
   status: number;
@@ -21,9 +26,14 @@ export function getApiUrl(path: string): string {
     path.startsWith('/search-address') || 
     path.startsWith('/validate-address') || 
     path.startsWith('/anomaly') || 
+    path.startsWith('/anomalies') || 
+    path.startsWith('/detect-anomaly') || 
     path.startsWith('/eta') || 
     path.startsWith('/risk') ||
+    path.startsWith('/me') ||
     // Parcel booking & tracking live on the FastAPI app
+    path.startsWith('/predict-category') ||
+    path.startsWith('/calculate-price') ||
     path.startsWith('/parcels') ||
     path.startsWith('/tracking') ||
     path.startsWith('/predict-eta')

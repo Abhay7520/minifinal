@@ -32,6 +32,12 @@ export function reattemptDelivery(trackingId: string, agentId = "Rohan Sharma"):
   });
 }
 
+export function regenerateOtp(trackingId: string, agentId = "Rohan Sharma"): Promise<{ success: boolean; otp_code?: string; message: string }> {
+  return apiPost<{ success: boolean; otp_code?: string; message: string }>(`/staff/delivery/${trackingId}/regenerate-otp`, {
+    agent_id: agentId
+  });
+}
+
 export function logDeliveryAction(trackingId: string, actionType: string): Promise<{ success: boolean; message: string }> {
   return apiPost<{ success: boolean; message: string }>(`/staff/action`, { 
     tracking_id: trackingId, 
