@@ -147,7 +147,19 @@ router.get("/deliveries", async (req, res) => {
           if (verifiedOtp) {
             otp = verifiedOtp.otp_code;
           } else {
-            otp = String(Math.floor(1000 + Math.random() * 9000));
+            // Retrieve the OTP already generated on the parcel document at booking time
+            let existingOtpOnParcel = otp_type === "pickup" ? p.pickup_otp : p.delivery_otp;
+            if (!existingOtpOnParcel) {
+              existingOtpOnParcel = String(Math.floor(1000 + Math.random() * 9000));
+              // Save it to parcel as well to make it permanent
+              if (isConnected()) {
+                const db = mongoose.connection.db;
+                const setField = otp_type === "pickup" ? { pickup_otp: existingOtpOnParcel } : { delivery_otp: existingOtpOnParcel };
+                await db.collection("parcels").updateOne({ tracking_id: trackingId }, { $set: setField });
+              }
+            }
+            otp = existingOtpOnParcel;
+
             const expiry = new Date(Date.now() + 10 * 60 * 1000);
             await db.collection("otps").insertOne({
               otp_id: "OTP" + Math.floor(100000 + Math.random() * 900000),
@@ -173,10 +185,14 @@ router.get("/deliveries", async (req, res) => {
       }
 
       // Progress calculation
-      let progress = 65; // default
+      let progress = 10; // default for stage 1
       if (override === 7) progress = 100;
       else if (override === -1) progress = 55;
       else if (override === 6) progress = 90;
+      else if (override === 2) progress = 20;
+      else if (override === 3) progress = 35;
+      else if (override === 4) progress = 55;
+      else if (override === 5) progress = 75;
 
       // Formatting ETA
       let etaStr = "02:00 PM";
@@ -462,32 +478,35 @@ router.post("/verify-otp", async (req, res) => {
         .toArray();
       
       const otpRecord = otpRecords[0];
+      let matchedCode = "";
       
-      if (!otpRecord) {
-        return res.status(400).json({ success: false, message: "No active OTP found. Please request a new code." });
+      if (otpRecord) {
+        matchedCode = otpRecord.otp_code;
+      } else {
+        matchedCode = otp_type === "pickup" ? parcel.pickup_otp : parcel.delivery_otp;
+      }
+
+      if (!matchedCode) {
+        return res.status(400).json({ success: false, message: "No verification code exists for this parcel." });
       }
       
       // Check attempts
-      let attempts = otpRecord.attempts || 0;
+      let attempts = otpRecord ? (otpRecord.attempts || 0) : 0;
       if (attempts >= 3) {
         return res.status(400).json({ success: false, message: "Maximum verification attempts (3) exceeded. Please regenerate a new OTP." });
       }
       
-      // Check expiry
-      const expiry = new Date(otpRecord.expiry);
-      if (now > expiry) {
-        return res.status(400).json({ success: false, message: "OTP has expired. Please regenerate a new code." });
-      }
-      
       // Increment attempts
       attempts += 1;
-      await db.collection("otps").updateOne(
-        { _id: otpRecord._id },
-        { $set: { attempts } }
-      );
+      if (otpRecord) {
+        await db.collection("otps").updateOne(
+          { _id: otpRecord._id },
+          { $set: { attempts } }
+        );
+      }
       
       // Compare code (allow 4829 backdoor)
-      if (otp !== otpRecord.otp_code && otp !== "4829") {
+      if (otp !== matchedCode && otp !== "4829") {
         if (attempts >= 3) {
           const audit = new OtpLog({ tracking_id, agent_id, otp_entered: otp, success: false, is_offline: !!is_offline });
           await audit.save();
@@ -499,10 +518,23 @@ router.post("/verify-otp", async (req, res) => {
       }
       
       // Correct! Mark as verified in otps
-      await db.collection("otps").updateOne(
-        { _id: otpRecord._id },
-        { $set: { verified: true, verified_at: now } }
-      );
+      if (otpRecord) {
+        await db.collection("otps").updateOne(
+          { _id: otpRecord._id },
+          { $set: { verified: true, verified_at: now } }
+        );
+      } else {
+        await db.collection("otps").insertOne({
+          otp_id: "OTP" + Math.floor(100000 + Math.random() * 900000),
+          tracking_id,
+          otp_type,
+          otp_code: otp,
+          expiry: now,
+          attempts: 1,
+          verified: true,
+          verified_at: now
+        });
+      }
       
       // Update parcel and stage history
       if (otp_type === "pickup") {
@@ -594,6 +626,157 @@ router.post("/verify-otp", async (req, res) => {
     return res.status(200).json({ success: true, message: `${otp_type === "pickup" ? "Pickup" : "Delivery"} confirmed and synced to MongoDB!` });
   } catch (error) {
     console.error("Error in OTP verification:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/staff/update-stage
+router.post("/update-stage", async (req, res) => {
+  try {
+    const { tracking_id, stage } = req.body;
+    const agent_id = req.body.agent_id || "Rohan Sharma";
+
+    if (!tracking_id || stage === undefined) {
+      return res.status(400).json({ error: "tracking_id and stage are required" });
+    }
+
+    const nextStage = Number(stage);
+    if (![2, 3, 4, 5, 6].includes(nextStage)) {
+      return res.status(400).json({ error: "Invalid stage transition for progress update" });
+    }
+
+    let parcel = null;
+    if (isConnected()) {
+      const db = mongoose.connection.db;
+      parcel = await db.collection("parcels").findOne({ tracking_id });
+    } else {
+      parcel = inMemoryParcels.find(p => p.tracking_id === tracking_id);
+    }
+
+    if (!parcel) {
+      return res.status(404).json({ error: "Parcel not found" });
+    }
+
+    let status_text = "In Transit";
+    let progress_percentage = 20;
+
+    if (nextStage === 2) {
+      status_text = "Picked Up";
+      progress_percentage = 20;
+    } else if (nextStage === 3) {
+      status_text = "In Transit - Hub Sorting";
+      progress_percentage = 35;
+    } else if (nextStage === 4) {
+      status_text = "In Transit - Dispatch to City";
+      progress_percentage = 55;
+    } else if (nextStage === 5) {
+      status_text = "Arrived at Delivery Hub";
+      progress_percentage = 75;
+    } else if (nextStage === 6) {
+      status_text = "Out for Delivery";
+      progress_percentage = 90;
+    }
+
+    const now = new Date();
+
+    if (isConnected()) {
+      const db = mongoose.connection.db;
+
+      // Update parcel manual stage
+      await db.collection("parcels").updateOne(
+        { tracking_id },
+        { $set: { manual_stage_override: nextStage } }
+      );
+
+      // If nextStage is 6 (Out for Delivery), generate/verify the delivery OTP
+      if (nextStage === 6) {
+        const activeOtps = await db.collection("otps")
+          .find({
+            tracking_id,
+            otp_type: "delivery",
+            verified: false
+          })
+          .sort({ expiry: -1 })
+          .limit(1)
+          .toArray();
+
+        if (activeOtps.length === 0) {
+          const delivery_otp = String(Math.floor(1000 + Math.random() * 9000));
+          const expiry = new Date(Date.now() + 10 * 60 * 1000);
+          await db.collection("otps").insertOne({
+            otp_id: "OTP" + Math.floor(100000 + Math.random() * 900000),
+            tracking_id,
+            otp_type: "delivery",
+            otp_code: delivery_otp,
+            expiry,
+            attempts: 0,
+            verified: false,
+            verified_at: null
+          });
+
+          // Also set on parcel itself
+          await db.collection("parcels").updateOne(
+            { tracking_id },
+            { $set: { delivery_otp } }
+          );
+
+          // Insert notification for the owner
+          const not_id = "NOT" + Math.floor(100000 + Math.random() * 900000);
+          await db.collection("notifications").insertOne({
+            notification_id: not_id,
+            user_id: parcel.owner_id,
+            user_email: parcel.owner_email,
+            tracking_id,
+            title: "Delivery OTP Notification",
+            message: `Your parcel ${tracking_id} is out for delivery. Please share OTP code ${delivery_otp} with the delivery agent.`,
+            type: "delivery_otp",
+            created_at: now,
+            read: false
+          });
+        }
+      }
+
+      // Update shipment_status
+      await db.collection("shipment_status").updateOne(
+        { tracking_id },
+        {
+          $set: {
+            status: status_text,
+            progress_percentage,
+            current_location_name: nextStage === 5 || nextStage === 6 ? (parcel.dest_po || "Local Sorting Hub") : (parcel.source_po || "Source Sorting Hub"),
+            last_updated: now
+          }
+        },
+        { upsert: true }
+      );
+
+      // Add to tracking_history
+      await db.collection("tracking_history").insertOne({
+        tracking_id,
+        status: status_text,
+        timestamp: now,
+        location: nextStage === 5 || nextStage === 6 ? (parcel.dest_po || "Local Sorting Hub") : (parcel.source_po || "Source Sorting Hub"),
+        details: `Shipment progress updated by courier agent ${agent_id} to stage ${nextStage}: ${status_text}.`
+      });
+    } else {
+      const idx = inMemoryParcels.findIndex(p => p.tracking_id === tracking_id);
+      if (idx !== -1) {
+        inMemoryParcels[idx].manual_stage_override = nextStage;
+      }
+    }
+
+    // Write audit trail delivery log
+    const deliveryLog = new DeliveryLog({
+      tracking_id,
+      agent_id,
+      status: `stage_${nextStage}`,
+      details: `Progress stage updated to ${nextStage}: ${status_text}.`
+    });
+    await deliveryLog.save();
+
+    return res.status(200).json({ success: true, message: `Progress updated to Stage ${nextStage} (${status_text})` });
+  } catch (error) {
+    console.error("Error updating progress stage:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Package, User, Briefcase, ShieldCheck, ArrowRight, Zap, Mail, Truck, BarChart3 } from "lucide-react";
+import authSelectBg from "@/assets/auth-select-bg.png";
 
 const roles = [
   {
@@ -59,15 +60,28 @@ const AuthRoleSelect = ({ mode }: AuthRoleSelectProps) => {
   const isLogin = mode === "login";
 
   return (
-    <div className="min-h-screen bg-[#050508] text-white flex flex-col items-center justify-center px-4 py-12 overflow-hidden relative">
+    <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-12 overflow-hidden text-white">
+      {/* ── Full-screen background image ── */}
+      <img
+        src={authSelectBg}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full object-cover object-center"
+      />
+
+      {/* Dark gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-br from-black/85 via-black/75 to-[#0b0518]/95" />
+
       {/* Ambient background */}
-      <div className="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-orange-500/8 blur-[120px]" />
-      <div className="absolute bottom-1/4 right-1/4 h-80 w-80 rounded-full bg-blue-500/8 blur-[100px]" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-64 w-64 rounded-full bg-violet-500/6 blur-[80px]" />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-orange-500/5 blur-[120px]" />
+        <div className="absolute bottom-1/4 right-1/4 h-80 w-80 rounded-full bg-blue-500/5 blur-[100px]" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-64 w-64 rounded-full bg-violet-500/4 blur-[80px]" />
+      </div>
 
       {/* Grid */}
       <div
-        className="absolute inset-0 opacity-[0.02]"
+        className="absolute inset-0 opacity-[0.02] pointer-events-none"
         style={{
           backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
           backgroundSize: "48px 48px",
@@ -121,7 +135,7 @@ const AuthRoleSelect = ({ mode }: AuthRoleSelectProps) => {
                 <motion.div
                   whileHover={{ y: -8, scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className={`group relative rounded-2xl border ${r.border} bg-white/[0.03] backdrop-blur-sm p-6 cursor-pointer transition-colors duration-300 hover:bg-white/[0.06] overflow-hidden`}
+                  className={`group relative rounded-2xl border ${r.border} bg-white/[0.03] backdrop-blur-md p-6 cursor-pointer transition-all duration-300 hover:bg-white/[0.08] hover:border-white/30 overflow-hidden shadow-xl shadow-black/30`}
                 >
                   {/* Glow on hover */}
                   <div className={`absolute -top-20 -right-20 h-40 w-40 rounded-full ${r.glow} blur-[60px] opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />

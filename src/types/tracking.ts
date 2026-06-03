@@ -50,4 +50,6 @@ export interface TrackingResponse {
   risk_info: RiskInfo;
   parcel_details: ParcelDetails;
   anomaly?: AnomalyInfo | null;
+  pickup_otp?: string | null;
+  delivery_otp?: string | null;
 }

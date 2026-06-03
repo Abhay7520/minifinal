@@ -80,6 +80,19 @@ const getGreeting = () => {
   return "Good evening";
 };
 
+const parseLocalDate = (dateStr: string) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split("-");
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 export default function UserDashboard() {
   const [loading, setLoading] = useState(true);
 
@@ -208,7 +221,7 @@ export default function UserDashboard() {
                     Shipment {alert.tracking_id} is delayed
                   </p>
                   <p className="text-xs text-white/50 mt-0.5">
-                    ETA was {alert.eta ? new Date(alert.eta).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}. Active anomaly logged in MongoDB.
+                    ETA was {alert.eta ? (parseLocalDate(alert.eta)?.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) || alert.eta) : "N/A"}. Active anomaly logged in MongoDB.
                   </p>
                 </div>
               </div>
@@ -235,7 +248,7 @@ export default function UserDashboard() {
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-wider text-orange-400/80">Next Expected Delivery (ETA)</h4>
               <p className="text-lg font-bold text-white mt-0.5">
-                Arriving on {new Date(dashboard.nextEta).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}
+                Arriving on {parseLocalDate(dashboard.nextEta)?.toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) || dashboard.nextEta}
               </p>
             </div>
           </div>

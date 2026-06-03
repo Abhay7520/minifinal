@@ -419,6 +419,38 @@ export default function TrackParcel() {
                 </div>
               </div>
 
+              {/* Security & Verification Card */}
+              {(trackingData.pickup_otp || trackingData.delivery_otp) && (
+                <div className="rounded-xl border border-orange-500/20 bg-gradient-to-br from-orange-500/5 to-transparent p-6 backdrop-blur-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 h-16 w-16 bg-orange-500/10 rounded-bl-full pointer-events-none flex items-center justify-center pl-4 pb-4">
+                    <Shield className="h-4.5 w-4.5 text-orange-400" />
+                  </div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-white/45 mb-4 flex items-center gap-2">
+                    Security & Verification
+                  </h3>
+                  <div className="space-y-4">
+                    {trackingData.pickup_otp && (
+                      <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3.5 space-y-2">
+                        <span className="text-[10px] text-orange-400 uppercase tracking-widest font-black block">Pickup OTP Code</span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-3xl font-black text-white tracking-widest">{trackingData.pickup_otp}</span>
+                          <span className="text-[10px] text-white/45 max-w-[150px] text-right leading-tight">Share with agent at pickup time.</span>
+                        </div>
+                      </div>
+                    )}
+                    {trackingData.delivery_otp && (
+                      <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3.5 space-y-2">
+                        <span className="text-[10px] text-violet-400 uppercase tracking-widest font-black block">Delivery OTP Code</span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-3xl font-black text-white tracking-widest">{trackingData.delivery_otp}</span>
+                          <span className="text-[10px] text-white/45 max-w-[150px] text-right leading-tight">Share with agent at delivery time.</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* AI Insights */}
               <div className="rounded-xl border border-violet-500/20 bg-gradient-to-b from-violet-500/5 to-transparent p-6 backdrop-blur-sm">
                 <div className="flex items-center gap-2 text-violet-400 mb-4">

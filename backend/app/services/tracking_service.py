@@ -3,6 +3,13 @@ import random
 from typing import Dict, Any, List, Optional
 from app.utils.mongo import db_service
 
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+def to_ist(dt: datetime.datetime) -> datetime.datetime:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt.astimezone(IST)
+
 TRACKING_STAGES = [
     {"stage": 1, "status": "Parcel Booked", "progress": 5, "desc": "Shipment booked and registered on AIPOSTAL AI platform."},
     {"stage": 2, "status": "Picked Up", "progress": 20, "desc": "Pickup agent collected the package and verified details."},
@@ -35,7 +42,7 @@ def create_parcel(parcel_data: Dict[str, Any], owner_payload: Optional[Dict[str,
 
     duration_hours = float(parcel_data.get("duration_hours", 2.0))
     eta_dt = created_at + datetime.timedelta(hours=duration_hours)
-    eta_str = eta_dt.strftime("%Y-%m-%d")
+    eta_str = to_ist(eta_dt).strftime("%Y-%m-%d")
 
     from app.services.pricing_service import calculate_pricing
     dims = parcel_data.get("dimensions", {"l": 30.0, "w": 20.0, "h": 15.0})
@@ -200,9 +207,9 @@ def advance_tracking_stage(
         created_at = now
 
     if next_stage in (6, 7):
-        new_eta = now.strftime("%Y-%m-%d")
+        new_eta = to_ist(now).strftime("%Y-%m-%d")
     else:
-        new_eta = (created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
+        new_eta = to_ist(created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
 
     parcels_col.update_one(
         {"tracking_id": tracking_id},
@@ -298,13 +305,13 @@ def get_tracking_info(
     # Calculate latest ETA based on current status/override and update MongoDB
     duration_hours = float(parcel.get("duration_hours", 2.0))
     if current_stage_idx == 6: # Delivered
-        calculated_eta = now.strftime("%Y-%m-%d")
+        calculated_eta = to_ist(now).strftime("%Y-%m-%d")
     elif current_stage_idx == 5: # Out for Delivery
-        calculated_eta = now.strftime("%Y-%m-%d")
+        calculated_eta = to_ist(now).strftime("%Y-%m-%d")
     elif is_failed: # Failed
-        calculated_eta = (created_at + datetime.timedelta(hours=duration_hours + 24.0)).strftime("%Y-%m-%d")
+        calculated_eta = to_ist(created_at + datetime.timedelta(hours=duration_hours + 24.0)).strftime("%Y-%m-%d")
     else:
-        calculated_eta = (created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
+        calculated_eta = to_ist(created_at + datetime.timedelta(hours=duration_hours)).strftime("%Y-%m-%d")
 
     current_eta = parcel.get("eta")
     if current_eta != calculated_eta:
@@ -381,7 +388,7 @@ def get_tracking_info(
         completed_statuses.add(h["status"])
         timeline.append({
             "status": h["status"],
-            "time": h["timestamp"].strftime("%d %b %Y, %I:%M %p"),
+            "time": to_ist(h["timestamp"]).strftime("%d %b %Y, %I:%M %p"),
             "location": h["location"],
             "details": h["details"],
             "done": True,
@@ -389,23 +396,37 @@ def get_tracking_info(
         })
         
     # 2. Add future predicted stages
-    # Estimated arrival time based on calculated_eta (set default delivery time to 18:00)
-    try:
-        predicted_arrival = datetime.datetime.strptime(calculated_eta, "%Y-%m-%d").replace(hour=18, minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc)
-    except Exception:
-        predicted_arrival = created_at + datetime.timedelta(hours=parcel.get("duration_hours", 2.0))
-        predicted_arrival = predicted_arrival.replace(hour=18, minute=0, second=0, microsecond=0, tzinfo=datetime.timezone.utc)
+    # Estimated arrival time based on calculated_eta
+    if current_stage_idx == 6: # Delivered
+        delivered_event = next((h for h in history_events if h["status"] == "Delivered"), None)
+        if delivered_event:
+            predicted_arrival = to_ist(delivered_event["timestamp"])
+        else:
+            predicted_arrival = to_ist(now)
+    else:
+        try:
+            parsed_eta = datetime.datetime.strptime(calculated_eta, "%Y-%m-%d")
+            expected_arrival_dt = to_ist(created_at + datetime.timedelta(hours=duration_hours))
+            predicted_arrival = parsed_eta.replace(
+                hour=expected_arrival_dt.hour,
+                minute=expected_arrival_dt.minute,
+                second=expected_arrival_dt.second,
+                microsecond=0,
+                tzinfo=IST
+            )
+        except Exception:
+            predicted_arrival = to_ist(created_at + datetime.timedelta(hours=parcel.get("duration_hours", 2.0)))
         
     num_remaining = 6 - current_stage_idx
-    time_to_arrival = predicted_arrival - now
+    time_to_arrival = predicted_arrival - to_ist(now)
     
     for idx, stage_info in enumerate(TRACKING_STAGES):
         if stage_info["status"] not in completed_statuses:
             if num_remaining > 0 and time_to_arrival.total_seconds() > 0:
                 fraction = (idx - current_stage_idx) / num_remaining
-                predicted_time = now + datetime.timedelta(seconds=time_to_arrival.total_seconds() * fraction)
+                predicted_time = to_ist(now) + datetime.timedelta(seconds=time_to_arrival.total_seconds() * fraction)
             else:
-                predicted_time = now + datetime.timedelta(minutes=30 * (idx - current_stage_idx))
+                predicted_time = to_ist(now) + datetime.timedelta(minutes=30 * (idx - current_stage_idx))
                 
             stage_loc = parcel["source_po"]
             if idx == 4:
@@ -519,8 +540,8 @@ def get_tracking_info(
     pickup_record = otps_col.find_one({"tracking_id": tracking_id, "otp_type": "pickup", "verified": False})
     delivery_record = otps_col.find_one({"tracking_id": tracking_id, "otp_type": "delivery", "verified": False})
     
-    pickup_otp_code = pickup_record["otp_code"] if pickup_record else None
-    delivery_otp_code = delivery_record["otp_code"] if delivery_record else None
+    pickup_otp_code = pickup_record["otp_code"] if pickup_record else parcel.get("pickup_otp")
+    delivery_otp_code = delivery_record["otp_code"] if delivery_record else parcel.get("delivery_otp")
 
     return {
         "tracking_id": tracking_id,
@@ -558,15 +579,16 @@ def _derive_parcel_status(current_status: str, estimated_delivery_str: str, deli
         return "Returned"
 
     # delayed if ETA date is in the past (and not delivered)
+    local_now_date = to_ist(datetime.datetime.now(datetime.timezone.utc)).date()
     try:
         # Try new format first
         eta_date = datetime.datetime.strptime(estimated_delivery_str, "%d %b %Y, %I:%M %p").date()
-        if eta_date < datetime.datetime.now(datetime.timezone.utc).date():
+        if eta_date < local_now_date:
             return "Delayed"
     except Exception:
         try:
             eta_date = datetime.datetime.strptime(estimated_delivery_str, "%Y-%m-%d").date()
-            if eta_date < datetime.datetime.now(datetime.timezone.utc).date():
+            if eta_date < local_now_date:
                 return "Delayed"
         except Exception:
             pass
@@ -638,7 +660,7 @@ def get_me_parcels_enriched(user_payload: Dict[str, Any]) -> List[Dict[str, Any]
             "tracking_id": tracking_id,
             "status": lifecycle_status,
             "created_at": created_at_str,
-            "eta": eta_value,
+            "eta": p.get("eta", ""),
             "estimated_delivery": eta_value,
             "parcel_type": p.get("parcel_type", "standard"),
             "delivery_date": delivered_date,
@@ -727,10 +749,11 @@ def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
         if not eta:
             return None
         if isinstance(eta, str):
-            try:
-                return datetime.datetime.strptime(eta, "%Y-%m-%d").date()
-            except Exception:
-                return None
+            for fmt in ("%d %b %Y, %I:%M %p", "%Y-%m-%d"):
+                try:
+                    return datetime.datetime.strptime(eta, fmt).date()
+                except Exception:
+                    continue
         return None
 
     active_with_eta = []
@@ -739,7 +762,8 @@ def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
         if d:
             active_with_eta.append((d, p))
 
-    future_items = [(d, p) for d, p in active_with_eta if d >= now.date()]
+    local_now = to_ist(now)
+    future_items = [(d, p) for d, p in active_with_eta if d >= local_now.date()]
     if future_items:
         future_items.sort(key=lambda x: x[0])
         next_eta_date = future_items[0][0]
@@ -787,7 +811,7 @@ def get_all_parcels() -> List[Dict[str, Any]]:
     cursor = parcels_col.find().sort("created_at", -1)
     results = []
     for doc in cursor:
-        doc["created_at"] = doc["created_at"].strftime("%Y-%m-%d %H:%M")
+        doc["created_at"] = to_ist(doc["created_at"]).strftime("%Y-%m-%d %H:%M")
         # remove ObjectId if present
         if "_id" in doc:
             doc["_id"] = str(doc["_id"])

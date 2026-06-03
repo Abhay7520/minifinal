@@ -53,6 +53,7 @@ import {
 import {
   getStaffDeliveries,
   verifyDeliveryOtp,
+  updateParcelStage,
   markDeliveryFailed,
   reattemptDelivery,
   regenerateOtp,
@@ -123,6 +124,7 @@ const DeliveryAgentDashboard = () => {
   const [otpInput, setOtpInput] = useState("");
   const [isVerifying, setIsVerifying] = useState<string | null>(null);
   const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
+  const [isUpdatingStage, setIsUpdatingStage] = useState<string | null>(null);
   const [showContact, setShowContact] = useState<string | null>(null);
   const [showFailModal, setShowFailModal] = useState<string | null>(null);
   
@@ -603,6 +605,24 @@ const DeliveryAgentDashboard = () => {
       toast.error(err?.message || "Error regenerating OTP");
     } finally {
       setIsRegenerating(null);
+    }
+  };
+
+  const handleUpdateStage = async (trackingId: string, nextStage: number) => {
+    setIsUpdatingStage(trackingId);
+    try {
+      const currentAgent = localStorage.getItem("userName") || agentName || "Rohan Sharma";
+      const res = await updateParcelStage(trackingId, nextStage, currentAgent);
+      if (res.success) {
+        toast.success(res.message || `Stage updated successfully!`);
+        loadData(true);
+      } else {
+        toast.error(res.message || "Failed to update progress.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Error updating progress stage");
+    } finally {
+      setIsUpdatingStage(null);
     }
   };
 
@@ -1184,42 +1204,149 @@ const DeliveryAgentDashboard = () => {
                                   {/* Action triggers if stop is current active stop */}
                                   {isCurrent && (
                                     <div className="mt-4 space-y-4 rounded-xl border border-orange-500/20 bg-orange-500/5 p-4 relative">
-                                      <div className="absolute top-3 right-3 text-[10px] text-orange-400 font-bold uppercase tracking-widest animate-pulse">
-                                        {stop.current_stage === 1 ? "Pickup OTP Required" : stop.current_stage === 6 ? "Delivery OTP Required" : "OTP Code Required"}
-                                      </div>
-                                      <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-2 rounded-lg border border-orange-500/30 bg-[#0c0a15] px-3 py-2">
-                                          <KeyRound className="h-4 w-4 text-orange-400" />
-                                          <input
-                                            type="text"
-                                            maxLength={4}
-                                            placeholder={stop.current_stage === 1 ? "Pickup OTP" : stop.current_stage === 6 ? "Delivery OTP" : "OTP Code"}
-                                            value={otpInput}
-                                            onChange={(e) => setOtpInput(e.target.value)}
-                                            className="w-20 bg-transparent text-center font-mono text-sm text-white placeholder:text-white/20 outline-none"
-                                            disabled={isVerifying === stop.id}
-                                          />
-                                        </div>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => handleConfirmOTP(stop.id)}
-                                          disabled={otpInput.length < 4 || isVerifying === stop.id}
-                                          className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold px-4 rounded-lg"
-                                        >
-                                          {isVerifying === stop.id ? "Confirming..." : "Verify & Complete"}
-                                        </Button>
+                                      {/* Render OTP Verification UI for Stages 1 and 6 */}
+                                      {(stop.current_stage === 1 || stop.current_stage === 6) ? (
+                                        <>
+                                          <div className="absolute top-3 right-3 text-[10px] text-orange-400 font-bold uppercase tracking-widest animate-pulse">
+                                            {stop.current_stage === 1 ? "Pickup OTP Required" : "Delivery OTP Required"}
+                                          </div>
+                                          <div className="flex flex-col gap-2">
+                                            <span className="text-[11px] text-white/50">
+                                              {stop.current_stage === 1 
+                                                ? "Verify the 4-digit pickup code provided by the sender." 
+                                                : "Verify the 4-digit delivery code provided by the recipient."}
+                                            </span>
+                                            <div className="flex items-center gap-3">
+                                              <div className="flex items-center gap-2 rounded-lg border border-orange-500/30 bg-[#0c0a15] px-3 py-2">
+                                                <KeyRound className="h-4 w-4 text-orange-400" />
+                                                <input
+                                                  type="text"
+                                                  maxLength={4}
+                                                  placeholder={stop.current_stage === 1 ? "Pickup OTP" : "Delivery OTP"}
+                                                  value={otpInput}
+                                                  onChange={(e) => setOtpInput(e.target.value)}
+                                                  className="w-20 bg-transparent text-center font-mono text-sm text-white placeholder:text-white/20 outline-none"
+                                                  disabled={isVerifying === stop.id}
+                                                />
+                                              </div>
+                                              <Button
+                                                size="sm"
+                                                onClick={() => handleConfirmOTP(stop.id)}
+                                                disabled={otpInput.length < 4 || isVerifying === stop.id}
+                                                className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold px-4 rounded-lg"
+                                              >
+                                                {isVerifying === stop.id ? "Confirming..." : "Verify & Complete"}
+                                              </Button>
 
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          onClick={() => handleRegenerateOtp(stop.id)}
-                                          disabled={isRegenerating === stop.id || isOffline}
-                                          className="border-white/10 bg-white/5 text-orange-400 hover:bg-white/10 rounded-lg flex items-center gap-1.5"
-                                        >
-                                          <RotateCcw className={`h-3.5 w-3.5 ${isRegenerating === stop.id ? "animate-spin" : ""}`} />
-                                          {isRegenerating === stop.id ? "Regenerating..." : "Regenerate OTP"}
-                                        </Button>
-                                      </div>
+                                              <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => handleRegenerateOtp(stop.id)}
+                                                disabled={isRegenerating === stop.id || isOffline}
+                                                className="border-white/10 bg-white/5 text-orange-400 hover:bg-white/10 rounded-lg flex items-center gap-1.5"
+                                              >
+                                                <RotateCcw className={`h-3.5 w-3.5 ${isRegenerating === stop.id ? "animate-spin" : ""}`} />
+                                                {isRegenerating === stop.id ? "Regenerating..." : "Regenerate OTP"}
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        /* Render Transit Progress Updater UI for Stages 2, 3, 4, 5 */
+                                        <>
+                                          <div className="absolute top-3 right-3 text-[10px] text-violet-400 font-bold uppercase tracking-widest animate-pulse">
+                                            Transit Progress
+                                          </div>
+                                          <div className="space-y-3">
+                                            <div className="flex flex-col gap-1">
+                                              <span className="text-[11px] text-white/50">Current Shipment Status</span>
+                                              <div className="flex items-center gap-2">
+                                                <div className="h-2 w-2 rounded-full bg-violet-400 animate-ping" />
+                                                <span className="text-sm font-bold text-white uppercase tracking-wide">
+                                                  {stop.current_stage === 2 && "Picked Up · Package Received"}
+                                                  {stop.current_stage === 3 && "In Transit · Hub Sorting"}
+                                                  {stop.current_stage === 4 && "In Transit · Dispatch to City"}
+                                                  {stop.current_stage === 5 && "Arrived at Delivery Hub"}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {/* Step Indicators */}
+                                            <div className="flex items-center gap-1.5 py-2">
+                                              {[2, 3, 4, 5, 6].map((stg) => {
+                                                const isActive = stg <= stop.current_stage;
+                                                const isCurrentStep = stg === stop.current_stage;
+                                                return (
+                                                  <div key={stg} className="flex-1 flex flex-col gap-1 items-center">
+                                                    <div className={`h-1.5 w-full rounded-full transition-all duration-300 ${
+                                                      isActive 
+                                                        ? isCurrentStep 
+                                                          ? "bg-violet-400 shadow-md shadow-violet-500/55 animate-pulse" 
+                                                          : "bg-gradient-to-r from-orange-500 to-violet-500" 
+                                                        : "bg-white/10"
+                                                    }`} />
+                                                    <span className={`text-[8px] font-black uppercase tracking-tighter ${isActive ? "text-violet-400" : "text-white/20"}`}>
+                                                      {stg === 2 && "PickedUp"}
+                                                      {stg === 3 && "Sorted"}
+                                                      {stg === 4 && "Dispatched"}
+                                                      {stg === 5 && "Arrived"}
+                                                      {stg === 6 && "Out"}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+
+                                            {/* Action button to advance to next stage */}
+                                            <div className="flex gap-2.5 pt-1">
+                                              {stop.current_stage === 2 && (
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => handleUpdateStage(stop.id, 3)}
+                                                  disabled={isUpdatingStage === stop.id}
+                                                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 rounded-lg flex items-center gap-1.5"
+                                                >
+                                                  <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                                                  {isUpdatingStage === stop.id ? "Updating..." : "Process: Sent to Sorting (Stage 3)"}
+                                                </Button>
+                                              )}
+                                              {stop.current_stage === 3 && (
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => handleUpdateStage(stop.id, 4)}
+                                                  disabled={isUpdatingStage === stop.id}
+                                                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 rounded-lg flex items-center gap-1.5"
+                                                >
+                                                  <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                                                  {isUpdatingStage === stop.id ? "Updating..." : "Process: Dispatch to City (Stage 4)"}
+                                                </Button>
+                                              )}
+                                              {stop.current_stage === 4 && (
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => handleUpdateStage(stop.id, 5)}
+                                                  disabled={isUpdatingStage === stop.id}
+                                                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 rounded-lg flex items-center gap-1.5"
+                                                >
+                                                  <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                                                  {isUpdatingStage === stop.id ? "Updating..." : "Process: Arrive at Local Hub (Stage 5)"}
+                                                </Button>
+                                              )}
+                                              {stop.current_stage === 5 && (
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => handleUpdateStage(stop.id, 6)}
+                                                  disabled={isUpdatingStage === stop.id}
+                                                  className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold px-5 rounded-lg flex items-center gap-1.5 shadow-lg shadow-orange-500/10"
+                                                >
+                                                  <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+                                                  {isUpdatingStage === stop.id ? "Updating..." : "Transition: Out for Delivery (Stage 6)"}
+                                                </Button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </>
+                                      )}
 
                                       <div className="flex flex-wrap gap-2 pt-2 border-t border-white/[0.04]">
                                         <Button size="xs" variant="outline" onClick={() => triggerAction(stop.id, "call")} className="border-white/10 bg-white/5 text-white/70 hover:bg-white/10 rounded-lg">

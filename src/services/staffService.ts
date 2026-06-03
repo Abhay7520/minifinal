@@ -17,6 +17,14 @@ export function verifyDeliveryOtp(trackingId: string, otp: string, isOffline = f
   });
 }
 
+export function updateParcelStage(trackingId: string, stage: number, agentId = "Rohan Sharma"): Promise<{ success: boolean; message: string }> {
+  return apiPost<{ success: boolean; message: string }>(`/staff/update-stage`, {
+    tracking_id: trackingId,
+    stage,
+    agent_id: agentId
+  });
+}
+
 export function markDeliveryFailed(trackingId: string, reason: string, agentId = "Rohan Sharma"): Promise<{ success: boolean; message: string }> {
   return apiPost<{ success: boolean; message: string }>(`/staff/fail`, { 
     tracking_id: trackingId, 
