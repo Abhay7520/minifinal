@@ -148,32 +148,5 @@ def get_all_anomalies() -> List[Dict[str, Any]]:
             doc["_id"] = str(doc["_id"])
         results.append(doc)
         
-    # If list is empty, return a few default mock ones so the admin dashboard is populated
-    if not results:
-        results = [
-            {
-                "tracking_id": "AP-20260099",
-                "issue_type": "Stuck Parcel",
-                "severity": "Critical",
-                "current_hub": "Delhi Hub",
-                "anomaly_score": 0.91,
-                "recommendation": "Investigate sorting hub delay. Package static for 72+ hours."
-            },
-            {
-                "tracking_id": "AP-20260087",
-                "issue_type": "Repeated Route Failure",
-                "severity": "High",
-                "current_hub": "Pune GPO",
-                "anomaly_score": 0.82,
-                "recommendation": "Repeated route failure on MH-RJ corridor. Check dispatch schedule."
-            },
-            {
-                "tracking_id": "AP-20260074",
-                "issue_type": "Abnormal Inactivity",
-                "severity": "Medium",
-                "current_hub": "Mumbai Central",
-                "anomaly_score": 0.65,
-                "recommendation": "Package static for 24+ hours at sorting center."
-            }
-        ]
     return results
+

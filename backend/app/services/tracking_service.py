@@ -375,6 +375,186 @@ def get_tracking_info(
         }
     }
 
+def _derive_parcel_status(current_status: str, estimated_delivery_str: str, delivered_status_name: str = "Delivered") -> str:
+    if current_status == delivered_status_name:
+        return "Delivered"
+
+    # delayed if ETA date is in the past (and not delivered)
+    try:
+        eta_date = datetime.datetime.strptime(estimated_delivery_str, "%Y-%m-%d").date()
+        if eta_date < datetime.datetime.now(datetime.timezone.utc).date():
+            return "Delayed"
+    except Exception:
+        pass
+
+    # everything else is active
+    return "Active"
+
+
+def _parse_datetime_from_mongo(value: Any) -> datetime.datetime:
+    if isinstance(value, datetime.datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
+        return value
+    # Fallback: try parsing string
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                dt = datetime.datetime.strptime(value, fmt)
+                return dt.replace(tzinfo=datetime.timezone.utc)
+            except Exception:
+                continue
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def get_me_parcels_enriched(user_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    email = user_payload.get("sub")
+    if not email:
+        return []
+
+    parcels = get_all_parcels()
+    my_parcels = [p for p in parcels if p.get("owner_email") == email]
+
+    enriched: List[Dict[str, Any]] = []
+    for p in my_parcels:
+        tracking_id = p.get("tracking_id")
+        if not tracking_id:
+            continue
+
+        # Compute lifecycle from existing backend logic.
+        info = get_tracking_info(tracking_id, user_payload=user_payload)
+        if not info:
+            continue
+
+        estimated_delivery = info.get("estimated_delivery")
+        current_status = info.get("current_status")
+        lifecycle_status = _derive_parcel_status(current_status, estimated_delivery)
+
+        created_at_dt = _parse_datetime_from_mongo(p.get("created_at"))
+        created_at_str = created_at_dt.isoformat()
+
+        delivered_date = None
+        # If timeline has Delivered event, use its timestamp (done milestone)
+        try:
+            delivered_events = [
+                t for t in info.get("timeline", [])
+                if t.get("done") and t.get("status") == "Delivered"
+            ]
+            if delivered_events:
+                delivered_date = delivered_events[-1].get("time", None)
+                # time is either ISO-like or formatted; keep as string for frontend.
+        except Exception:
+            delivered_date = None
+
+        eta_value = estimated_delivery
+        if eta_value is None:
+            eta_value = ""
+
+        enriched.append({
+            "tracking_id": tracking_id,
+            "status": lifecycle_status,
+            "created_at": created_at_str,
+            "eta": eta_value,
+            "estimated_delivery": eta_value,
+            "parcel_type": p.get("parcel_type", "standard"),
+            "delivery_date": delivered_date,
+        })
+
+    # sort newest first
+    enriched.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return enriched
+
+
+def get_me_dashboard(user_payload: Dict[str, Any]) -> Dict[str, Any]:
+    parcels = get_me_parcels_enriched(user_payload)
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    active = [p for p in parcels if p.get("status") in {"Active"}]
+    delivered = [p for p in parcels if p.get("status") in {"Delivered"}]
+    delayed = [p for p in parcels if p.get("status") in {"Delayed"}]
+    returned = [p for p in parcels if p.get("status") in {"Returned"}]
+
+    # Weekly activity: last 7 days counts by created_at day (real records)
+    start_date = (now - datetime.timedelta(days=6)).date()
+    days = [(start_date + datetime.timedelta(days=i)) for i in range(7)]
+    day_labels = [d.strftime("%a") for d in days]
+    day_map = {d.strftime("%a"): 0 for d in days}
+
+    for p in parcels:
+        try:
+            dt = datetime.datetime.fromisoformat(p["created_at"])
+            day = dt.astimezone(datetime.timezone.utc).date()
+            if start_date <= day <= now.date():
+                day_map[day.strftime("%a")] += 1
+        except Exception:
+            continue
+
+    weekly_activity = [{"day": label, "parcels": day_map.get(label, 0)} for label in day_labels]
+
+    # Monthly overview: current month counts of sent vs received.
+    first_day = now.replace(day=1).date()
+    next_month = (first_day.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
+    this_month_label = first_day.strftime("%b")
+
+    sent_count = 0
+    received_count = 0
+    for p in parcels:
+        # sent by created_at in current month
+        try:
+            dt = datetime.datetime.fromisoformat(p["created_at"])
+            day = dt.astimezone(datetime.timezone.utc).date()
+            if first_day <= day < next_month:
+                sent_count += 1
+        except Exception:
+            pass
+
+        # received/delivered by status delivered
+        if p.get("status") == "Delivered":
+            received_count += 1
+
+    monthly_overview = [{"month": this_month_label, "sent": sent_count, "received": received_count}]
+
+    # nextEta: next active parcel ETA (smallest future eta)
+    def eta_to_date(eta: Any) -> Optional[datetime.date]:
+        if not eta:
+            return None
+        if isinstance(eta, str):
+            try:
+                return datetime.datetime.strptime(eta, "%Y-%m-%d").date()
+            except Exception:
+                return None
+        return None
+
+    active_with_eta = []
+    for p in active:
+        d = eta_to_date(p.get("eta"))
+        if d:
+            active_with_eta.append((d, p))
+
+    future_items = [(d, p) for d, p in active_with_eta if d >= now.date()]
+    if future_items:
+        future_items.sort(key=lambda x: x[0])
+        next_eta_date = future_items[0][0]
+        next_eta = next_eta_date.strftime("%Y-%m-%d")
+    else:
+        # if no future eta, return earliest active eta as fallback but still real-derived
+        if active_with_eta:
+            active_with_eta.sort(key=lambda x: x[0])
+            next_eta = active_with_eta[0][0].strftime("%Y-%m-%d")
+        else:
+            next_eta = ""
+
+    return {
+        "activeParcels": len(active),
+        "deliveredParcels": len(delivered),
+        "delayedParcels": len(delayed),
+        "returnedParcels": len(returned),
+        "weeklyActivity": weekly_activity,
+        "monthlyOverview": monthly_overview,
+        "nextEta": next_eta,
+    }
+
+
 def get_all_parcels() -> List[Dict[str, Any]]:
     parcels_col = db_service.get_collection("parcels")
     cursor = parcels_col.find().sort("created_at", -1)
@@ -386,3 +566,4 @@ def get_all_parcels() -> List[Dict[str, Any]]:
             doc["_id"] = str(doc["_id"])
         results.append(doc)
     return results
+

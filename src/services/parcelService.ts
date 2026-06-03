@@ -52,4 +52,12 @@ export function getMyParcels(): Promise<ParcelSummary[]> {
   return apiGet<ParcelSummary[]>("/me/parcels");
 }
 
+// Backward-compatible name used by UserOrders.tsx
+export function getAllParcels(): Promise<ParcelSummary[]> {
+  return getMyParcels();
+}
+
+
+
+
 

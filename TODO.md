@@ -1,13 +1,13 @@
-- [ ] Inspect existing parcel/tracking schemas and endpoints (FastAPI) + confirm JWT claims content
-- [ ] Add JWT auth dependency in FastAPI (Authorization: Bearer)
-- [ ] Update parcel booking creation to persist owner_id/owner_email in Mongo documents
-- [ ] Backfill/migration: set owner_id/owner_email to null for existing parcels without ownership
-- [ ] Add user-scoped APIs (/me/*) for dashboards and tracking ownership checks
-- [ ] Update frontend API client to attach Authorization header from existing localStorage token
-- [ ] Update UserDashboard.tsx: active counts + weekly activity + monthly overview (current month only) from /me endpoints
-- [ ] Update TrackParcel.tsx: remove hardcoded tracking ids; fetch user tracking ids; show empty state
-- [ ] Add UI background design sections to Track Parcel (Overview, Timeline, Route History, AI Insights, Delivery Prediction)
-- [ ] Ensure dashboard cards update in real time (polling intervals)
-- [ ] Verify compilation and run basic checks
-- [ ] Report: files modified, APIs updated, components changed, remaining limitations
+# TODO.md
+
+## Prompt 2 Backend Completion
+
+- [ ] Explore backend routes and tracking/parcels services to derive real status + dates.
+- [ ] Update `GET /me/parcels` to return required fields per parcel.
+- [ ] Implement `GET /me/dashboard` (active/delivered/delayed/returned, weeklyActivity, monthlyOverview, nextEta).
+- [ ] Implement weekly & monthly aggregation from real parcel records (no placeholder values).
+- [ ] Compute `nextEta` using backend ETA calculations.
+- [ ] Update `src/pages/user/UserDashboard.tsx` to consume `GET /me/dashboard` and remove fallback/mock data.
+- [ ] Run backend checks and frontend build.
+- [ ] Verify dashboard displays real values; ensure no placeholder statistics remain.
 

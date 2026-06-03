@@ -7,7 +7,12 @@ from app.services.tracking_service import (
     get_tracking_info,
     advance_tracking_stage,
     get_all_parcels,
+    get_me_parcels_enriched,
+    get_me_dashboard,
 )
+
+
+
 from app.utils.jwt_auth import get_current_user_payload
 
 router = APIRRouter(tags=["Tracking & Booking"])
@@ -105,16 +110,24 @@ def book_parcel_endpoint(
 def list_my_parcels_endpoint(
     user_payload: Dict[str, Any] = Depends(get_current_user_payload),
 ):
-    # Ownership-filtered parcel list for the logged-in user.
-    # (Backward-compat public /parcels is intentionally not used for user dashboards.)
     try:
-        email = user_payload.get("sub")
-        parcels = get_all_parcels()
-        if email:
-            return [p for p in parcels if p.get("owner_email") == email]
-        return []
+        return get_me_parcels_enriched(user_payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.get("/me/dashboard")
+def me_dashboard_endpoint(
+    user_payload: Dict[str, Any] = Depends(get_current_user_payload),
+):
+    try:
+        return get_me_dashboard(user_payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 
 
 

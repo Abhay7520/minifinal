@@ -555,8 +555,8 @@ const BookParcel = () => {
                                 />
                               </>
                             ) : (
-                              <>
-                                <Brain className="h-4 w-4" /> Validate with AI
+                          <>
+                                <Brain className="h-4 w-4" /> Validate
                               </>
                             )}
                           </motion.button>

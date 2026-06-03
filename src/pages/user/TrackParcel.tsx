@@ -1,90 +1,110 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import PageBackground from "@/components/PageBackground";
 import bgTrack from "@/assets/bg-track.jpg";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import LeafletMap from "@/components/LeafletMap";
-import { getTrackingInfo, advanceTrackingStage } from "@/services/trackingService";
 
 import { toast } from "sonner";
 
 import {
-  Search,
   Package,
   CheckCircle,
   Truck,
   Building2,
   Clock,
-  Shield,
   Activity,
+  Search,
   AlertTriangle,
-  ArrowRight,
-  User,
-  Compass
+  Shield,
+  Compass,
+  Sparkles,
 } from "lucide-react";
+
 import { motion } from "framer-motion";
 
-// Helper to map status strings to Lucide icons
+import { getTrackingInfo, advanceTrackingStage } from "@/services/trackingService";
+import { getMyParcels } from "@/services/parcelService";
+import type { TrackingResponse } from "@/types/tracking";
+
+
 const getMilestoneIcon = (status: string) => {
   const s = status.toLowerCase();
   if (s.includes("booked")) return Package;
-  if (s.includes("pickup") || s.includes("picked")) return User;
+  if (s.includes("pickup") || s.includes("picked")) return Building2;
   if (s.includes("source") || s.includes("sorting") || s.includes("hub") || s.includes("office")) return Building2;
   if (s.includes("transit") || s.includes("out for delivery")) return Truck;
   if (s.includes("delivered")) return CheckCircle;
   return Package;
 };
 
-const TrackParcel = () => {
+type TrackingData = {
+  tracking_id: string;
+  current_status: string;
+  progress_percentage: number;
+  current_location: string;
+  current_lat: number;
+  current_lng: number;
+  estimated_delivery: string;
+  timeline: Array<{
+    status: string;
+    time: string;
+    location: string;
+    details: string;
+    done: boolean;
+    predicted: boolean;
+  }>;
+  risk_info: {
+    risk_level: string;
+    risk_score: number;
+    risk_factors: string[];
+    recommendation: string;
+  };
+  parcel_details: {
+    source_address: string;
+    destination_address: string;
+    sender_name: string;
+    receiver_name: string;
+    weight: number;
+    parcel_type: string;
+    price_total: number;
+    source_lat: number;
+    source_lng: number;
+    dest_lat: number;
+    dest_lng: number;
+    route_coordinates: number[][];
+  };
+};
+
+type UserParcelId = { tracking_id: string };
+
+export default function TrackParcel() {
   const [searchParams, setSearchParams] = useSearchParams();
   const idParam = searchParams.get("id") || "";
-  
-  const [trackingId, setTrackingId] = useState(idParam || "AIP202601");
-  type TrackingData = {
-    tracking_id: string;
-    current_status: string;
-    progress_percentage: number;
-    current_location: string;
-    current_lat: number;
-    current_lng: number;
-    estimated_delivery: string;
-    timeline: Array<{ status: string; time: string; location: string; details: string; done: boolean; predicted: boolean }>; 
-    risk_info: { risk_level: string; risk_score: number; risk_factors: string[]; recommendation: string };
-    parcel_details: {
-      source_address: string;
-      destination_address: string;
-      sender_name: string;
-      receiver_name: string;
-      weight: number;
-      parcel_type: string;
-      price_total: number;
-      source_lat: number;
-      source_lng: number;
-      dest_lat: number;
-      dest_lng: number;
-      route_coordinates: number[][];
-    };
-  };
 
-  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
+  const [availableIds, setAvailableIds] = useState<UserParcelId[]>([]);
+  const [trackingId, setTrackingId] = useState(idParam);
+
+  const [trackingData, setTrackingData] = useState<TrackingResponse | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
+  const canPoll = useMemo(() => Boolean(trackingId), [trackingId]);
+
   const fetchTracking = async (id: string, quiet = false) => {
     if (!id) return;
     if (!quiet) setLoading(true);
+
     try {
       const data = await getTrackingInfo(id);
-    setTrackingData(data);
+      setTrackingData(data);
     } catch (err) {
       const anyErr = err as unknown as { message?: string };
-
       console.error(err);
       if (!quiet) {
-        toast.error(err?.message || "Tracking ID not found in database.");
+        toast.error(anyErr?.message || "Unable to load tracking for this parcel.");
         setTrackingData(null);
       }
     } finally {
@@ -92,29 +112,46 @@ const TrackParcel = () => {
     }
   };
 
-  useEffect(() => {
-    if (idParam) {
-      setTrackingId(idParam);
-      fetchTracking(idParam);
+  const fetchAvailableParcels = async () => {
+    setAvailableIds([]);
+    try {
+      const res = await getMyParcels();
+      setAvailableIds((res || []).map((p) => ({ tracking_id: p.tracking_id })));
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load your parcels.");
     }
+  };
+
+  useEffect(() => {
+    // 1) If ?id is not present, load list of available ids.
+    if (!idParam) {
+      setTrackingId("");
+      setTrackingData(null);
+      fetchAvailableParcels();
+      return;
+    }
+
+    // 2) If ?id is present, show tracking.
+    setTrackingId(idParam);
+    fetchTracking(idParam);
   }, [idParam]);
 
-  // Set up 5-second polling interval
+  // Poll tracking only when id is present
   useEffect(() => {
-    if (!trackingId || !idParam) return;
+    if (!canPoll || !idParam) return;
     const interval = setInterval(() => {
       fetchTracking(trackingId, true);
     }, 5000);
     return () => clearInterval(interval);
-  }, [trackingId, idParam]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPoll, idParam, trackingId]);
 
-  const handleTrackSubmit = () => {
-    if (!trackingId.trim()) {
-      toast.error("Please enter a Tracking ID");
-      return;
-    }
-    setSearchParams({ id: trackingId });
-    fetchTracking(trackingId);
+  const handleSelectId = (id: string) => {
+    setTrackingId(id);
+    setTrackingData(null);
+    setSearchParams({ id });
+    fetchTracking(id);
   };
 
   const handleAdvanceStage = async () => {
@@ -125,86 +162,89 @@ const TrackParcel = () => {
       toast.success("Cargo simulation advanced to next stage!");
       fetchTracking(trackingId);
     } catch (err) {
-      toast.error(err?.message || "Failed to advance simulation stage.");
+      toast.error((err as unknown as { message?: string })?.message || "Failed to advance simulation stage.");
     } finally {
       setIsAdvancing(false);
     }
   };
 
-  // Compile Leaflet Map markers
-  const mapMarkers = trackingData ? [
-    {
-      id: "Origin PO",
-      lat: trackingData.parcel_details.source_lat,
-      lng: trackingData.parcel_details.source_lng,
-      label: trackingData.parcel_details.source_address.split(',')[0],
-      status: "moving" as const
-    },
-    {
-      id: "Destination PO",
-      lat: trackingData.parcel_details.dest_lat,
-      lng: trackingData.parcel_details.dest_lng,
-      label: trackingData.parcel_details.destination_address.split(',')[0],
-      status: "delivered" as const
-    },
-    {
-      id: "Current Marker",
-      lat: trackingData.current_lat,
-      lng: trackingData.current_lng,
-      label: trackingData.current_location,
-      status: "current" as const
-    }
-  ] : [];
+  const mapMarkers = useMemo(() => {
+    if (!trackingData) return [];
+    return [
+      {
+        id: "Origin PO",
+        lat: trackingData.parcel_details.source_lat,
+        lng: trackingData.parcel_details.source_lng,
+        label: trackingData.parcel_details.source_address.split(",")[0],
+        status: "moving" as const,
+      },
+      {
+        id: "Destination PO",
+        lat: trackingData.parcel_details.dest_lat,
+        lng: trackingData.parcel_details.dest_lng,
+        label: trackingData.parcel_details.destination_address.split(",")[0],
+        status: "delivered" as const,
+      },
+      {
+        id: "Current Marker",
+        lat: trackingData.current_lat,
+        lng: trackingData.current_lng,
+        label: trackingData.current_location,
+        status: "current" as const,
+      },
+    ];
+  }, [trackingData]);
 
   return (
     <DashboardLayout role="user">
       <PageBackground image={bgTrack} variant="scan" />
-      {/* Header */}
+
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white">Track Parcel</h1>
-        <p className="mt-1 text-white/50">Real-time AI-powered tracking & simulation</p>
+        <p className="mt-1 text-white/50">Real-time tracking & delivery intelligence</p>
       </div>
 
-      {/* Search & Actions */}
-      <div className="mb-8 flex flex-col sm:flex-row max-w-2xl gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
-          <Input
-            value={trackingId}
-            onChange={(e) => setTrackingId(e.target.value)}
-            placeholder="Enter Tracking ID (e.g. AIP123456)"
-            className="pl-10 border-white/10 bg-white/5 text-white placeholder:text-white/30 focus:scale-[1.01] transition-all h-11 rounded-xl"
-            onKeyDown={(e) => e.key === "Enter" && handleTrackSubmit()}
-          />
-        </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={handleTrackSubmit}
-            disabled={loading}
-            className="bg-gradient-to-r from-orange-500 to-violet-600 text-white font-bold h-11 px-6 rounded-xl"
-          >
-            {loading ? "Searching..." : "Track"}
-          </Button>
+      {!idParam ? (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8 rounded-2xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Search className="h-5 w-5 text-orange-400" />
+            <h2 className="font-display text-lg font-semibold text-white">Select a parcel to track</h2>
+          </div>
 
-          {trackingData && (
-            <Button
-              onClick={handleAdvanceStage}
-              disabled={isAdvancing || trackingData.current_status === "Delivered"}
-              variant="outline"
-              className="border-white/10 bg-white/5 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 h-11 rounded-xl gap-1.5"
-            >
-              <Compass className="h-4 w-4 animate-spin-slow" />
-              Simulate Stage →
-            </Button>
+          {availableIds.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center">
+              <AlertTriangle className="h-10 w-10 text-white/15 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-white/40">No parcels found</h3>
+              <p className="text-sm text-white/20 mt-1">Book a new parcel to start tracking.</p>
+            </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {availableIds.map((p) => (
+                <Button
+                  key={p.tracking_id}
+                  variant="outline"
+                  onClick={() => handleSelectId(p.tracking_id)}
+                  className="justify-start border-white/10 bg-white/5 text-white hover:bg-white/10"
+                >
+                  <Package className="mr-2 h-4 w-4 text-orange-400" />
+                  {p.tracking_id}
+                </Button>
+              ))}
+            </div>
           )}
-        </div>
-      </div>
+        </motion.div>
+      ) : null}
 
       {trackingData ? (
         <>
-          {/* HERO STATUS BANNER */}
+          {/* Tracking Overview */}
           <div className="mb-8 rounded-2xl border border-white/10 bg-gradient-to-br from-orange-500/10 via-violet-500/10 to-[#0e0c18]/40 p-6 backdrop-blur-md relative overflow-hidden">
             <div className="absolute inset-0 opacity-[0.02] bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-white via-transparent to-transparent pointer-events-none" />
+
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
               <div>
                 <p className="text-xs font-black uppercase tracking-widest text-white/40">Current Status</p>
@@ -233,11 +273,10 @@ const TrackParcel = () => {
             </div>
           </div>
 
-          {/* GRID PANELS */}
+          {/* Route History + Timeline + Map */}
           <div className="grid max-w-6xl gap-6 lg:grid-cols-3">
-            {/* LEFT COLUMN: INFO & AI INSIGHTS */}
             <div className="space-y-6">
-              {/* PARCEL INFO CARD */}
+              {/* Parcel Details (part of Overview) */}
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur-sm">
                 <h3 className="text-sm font-black uppercase tracking-widest text-white/40 mb-4 flex items-center gap-2">
                   <Package className="h-4 w-4 text-orange-400" /> Parcel Details
@@ -248,20 +287,27 @@ const TrackParcel = () => {
                     <span className="text-white/40">Tracking ID</span>
                     <span className="font-bold text-orange-400">{trackingData.tracking_id}</span>
                   </div>
+
                   <div className="py-3 flex flex-col gap-0.5">
                     <span className="text-white/40 text-xs">Sender / From</span>
                     <span className="font-semibold text-white">{trackingData.parcel_details.sender_name}</span>
                     <span className="text-xs text-white/50 line-clamp-2">{trackingData.parcel_details.source_address}</span>
                   </div>
+
                   <div className="py-3 flex flex-col gap-0.5">
                     <span className="text-white/40 text-xs">Recipient / To</span>
                     <span className="font-semibold text-white">{trackingData.parcel_details.receiver_name}</span>
                     <span className="text-xs text-white/50 line-clamp-2">{trackingData.parcel_details.destination_address}</span>
                   </div>
+
                   <div className="py-3 flex justify-between">
                     <span className="text-white/40">Weight / Type</span>
-                    <span className="font-bold text-white">{trackingData.parcel_details.weight} kg · <span className="capitalize text-violet-300">{trackingData.parcel_details.parcel_type}</span></span>
+                    <span className="font-bold text-white">
+                      {trackingData.parcel_details.weight} kg ·{' '}
+                      <span className="capitalize text-violet-300">{trackingData.parcel_details.parcel_type}</span>
+                    </span>
                   </div>
+
                   <div className="pt-3 flex justify-between">
                     <span className="text-white/40">Total Charged</span>
                     <span className="font-black text-orange-400">₹{trackingData.parcel_details.price_total.toLocaleString("en-IN")}</span>
@@ -269,21 +315,25 @@ const TrackParcel = () => {
                 </div>
               </div>
 
-              {/* AI DELAY RISK CARD */}
+              {/* AI Insights */}
               <div className="rounded-xl border border-violet-500/20 bg-gradient-to-b from-violet-500/5 to-transparent p-6 backdrop-blur-sm">
                 <div className="flex items-center gap-2 text-violet-400 mb-4">
-                  <Activity className="h-4.5 w-4.5" />
-                  <h3 className="text-sm font-black uppercase tracking-widest">AI Delay Risk Analysis</h3>
+                  <Sparkles className="h-4.5 w-4.5" />
+                  <h3 className="text-sm font-black uppercase tracking-widest">AI Insights</h3>
                 </div>
 
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-white/50">Risk Evaluation</span>
-                    <span className={`rounded-full px-3 py-0.5 text-xs font-bold uppercase tracking-wider ${
-                      trackingData.risk_info.risk_level === "High" ? "bg-red-500/15 text-red-400" :
-                      trackingData.risk_info.risk_level === "Medium" ? "bg-amber-500/15 text-amber-400" :
-                      "bg-emerald-500/15 text-emerald-400"
-                    }`}>
+                    <span
+                      className={`rounded-full px-3 py-0.5 text-xs font-bold uppercase tracking-wider ${
+                        trackingData.risk_info.risk_level === "High"
+                          ? "bg-red-500/15 text-red-400"
+                          : trackingData.risk_info.risk_level === "Medium"
+                            ? "bg-amber-500/15 text-amber-400"
+                            : "bg-emerald-500/15 text-emerald-400"
+                      }`}
+                    >
                       {trackingData.risk_info.risk_level} Risk
                     </span>
                   </div>
@@ -299,7 +349,7 @@ const TrackParcel = () => {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-widest text-white/40 mb-2">Contributing Factors</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {trackingData.risk_info.risk_factors.map((factor: string) => (
+                      {trackingData.risk_info.risk_factors.map((factor) => (
                         <span key={factor} className="rounded-md border border-white/5 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-white/70">
                           • {factor}
                         </span>
@@ -309,52 +359,54 @@ const TrackParcel = () => {
 
                   <div className="border-t border-white/5 pt-3 space-y-1.5">
                     <span className="text-xs font-bold uppercase tracking-widest text-violet-400">AI Recommendations</span>
-                    <p className="text-xs text-white/70 leading-relaxed italic">
-                      "{trackingData.risk_info.recommendation}"
-                    </p>
+                    <p className="text-xs text-white/70 leading-relaxed italic">"{trackingData.risk_info.recommendation}"</p>
                   </div>
                 </div>
               </div>
+
+              {trackingData.current_status !== "Delivered" ? (
+                <Button
+                  onClick={handleAdvanceStage}
+                  disabled={isAdvancing}
+                  variant="outline"
+                  className="w-full border-white/10 bg-white/5 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300"
+                >
+                  <Compass className="mr-2 h-4 w-4" />
+                  Simulate Stage →
+                </Button>
+              ) : null}
             </div>
 
-            {/* MIDDLE/RIGHT COLUMN: MAP & TIMELINE */}
+            {/* Map + Delivery Timeline */}
             <div className="lg:col-span-2 space-y-6">
-              {/* ROUTE MAP CONTAINER */}
               <div className="h-[380px] rounded-xl border border-white/[0.08] overflow-hidden bg-white/[0.02] shadow-xl relative">
-                <LeafletMap
-                  markers={mapMarkers}
-                  showRoute={true}
-                  routeCoordinates={trackingData.parcel_details.route_coordinates}
-                  className="h-full w-full"
-                />
+                <LeafletMap markers={mapMarkers} showRoute={true} routeCoordinates={trackingData.parcel_details.route_coordinates} className="h-full w-full" />
               </div>
 
-              {/* TIMELINE TIMELINE */}
               <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm">
                 <h3 className="mb-6 text-sm font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-orange-400" /> Tracking Milestones
+                  <Clock className="h-4 w-4 text-orange-400" /> Delivery Timeline
                 </h3>
 
                 <div className="space-y-1">
                   {trackingData.timeline.map((m, i) => {
                     const MilestoneIcon = getMilestoneIcon(m.status);
-                    
                     return (
-                      <div key={m.status} className="flex gap-4">
+                      <div key={`${m.status}-${i}`} className="flex gap-4">
                         <div className="flex flex-col items-center">
                           <div
-                            className={`flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500
-                            ${m.done
+                            className={`flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 ${
+                              m.done
                                 ? "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/25"
                                 : m.predicted
                                   ? "border-2 border-dashed border-white/20 bg-white/5 text-white/30"
                                   : "bg-white/10 text-white/40"
-                              }`}
+                            }`}
                           >
                             <MilestoneIcon className="h-4.5 w-4.5" />
                           </div>
 
-                          {i < trackingData.timeline.length - 1 && (
+                          {i < trackingData.timeline.length - 1 ? (
                             <div
                               className={`my-1.5 h-12 w-0.5 transition-colors duration-500 ${
                                 m.done && trackingData.timeline[i + 1]?.done
@@ -362,27 +414,21 @@ const TrackParcel = () => {
                                   : "bg-white/10"
                               }`}
                             />
-                          )}
+                          ) : null}
                         </div>
 
                         <div className="pb-6 flex-1">
                           <div className="flex items-center gap-2.5">
-                            <p className={`text-sm font-bold ${m.done ? "text-white" : "text-white/40"}`}>
-                              {m.status}
-                            </p>
-                            {m.predicted && (
+                            <p className={`text-sm font-bold ${m.done ? "text-white" : "text-white/40"}`}>{m.status}</p>
+                            {m.predicted ? (
                               <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-400">
                                 AI Predicted
                               </span>
-                            )}
+                            ) : null}
                           </div>
-                          
-                          <p className="text-[11px] text-orange-400/70 font-semibold mt-0.5">
-                            Location: {m.location}
-                          </p>
-                          <p className="text-xs text-white/50 mt-1 leading-relaxed max-w-xl">
-                            {m.details}
-                          </p>
+
+                          <p className="text-[11px] text-orange-400/70 font-semibold mt-0.5">Location: {m.location}</p>
+                          <p className="text-xs text-white/50 mt-1 leading-relaxed max-w-xl">{m.details}</p>
                           <span className="text-[10px] text-white/30 mt-1 flex items-center gap-1.5">
                             <Clock className="h-3 w-3" /> {m.time}
                           </span>
@@ -394,18 +440,62 @@ const TrackParcel = () => {
               </div>
             </div>
           </div>
+
+          {/* Route History + Delivery Prediction */}
+          <div className="mt-8 grid gap-6 lg:grid-cols-2 max-w-6xl">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm">
+              <h3 className="mb-4 text-sm font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-orange-400" /> Route History
+              </h3>
+              <div className="space-y-3">
+                {trackingData.timeline.map((m, idx) => (
+                  <div key={`${m.status}-${idx}`} className="flex items-start justify-between gap-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white/80 truncate">{m.status}</p>
+                      <p className="text-xs text-white/50">{m.location}</p>
+                      <p className="text-xs text-white/40 mt-1 leading-relaxed">{m.details}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-white/30">{m.time}</p>
+                      {m.predicted ? <p className="text-[10px] text-violet-400 mt-1 font-bold">Predicted</p> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-6 backdrop-blur-sm">
+              <h3 className="mb-4 text-sm font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-400" /> Delivery Prediction
+              </h3>
+              <div className="space-y-4">
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-white/40">Estimated delivery</p>
+                  <p className="mt-1 text-lg font-bold text-white">{trackingData.estimated_delivery}</p>
+                </div>
+
+                <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-white/40">Delay risk score</p>
+                  <p className="mt-1 text-2xl font-black text-violet-300">{Math.round(trackingData.risk_info.risk_score * 100)}%</p>
+                  <p className="text-xs text-white/50 mt-1">{trackingData.risk_info.risk_level} risk level</p>
+                </div>
+
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+                  <p className="text-xs font-bold uppercase tracking-widest text-violet-400">AI Recommendation</p>
+                  <p className="text-xs text-white/70 mt-2 leading-relaxed italic">"{trackingData.risk_info.recommendation}"</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
-      ) : (
+      ) : idParam ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-12 text-center flex flex-col items-center justify-center min-h-[360px] max-w-3xl">
           <Activity className="h-10 w-10 text-white/15 mb-4 animate-pulse" />
-          <h3 className="text-lg font-bold text-white/40">AIPOSTAL Global Tracking Engine</h3>
-          <p className="text-sm text-white/20 mt-1.5 max-w-md">
-            Enter a valid tracking ID above to load your parcel logs. You can create a new cargo booking in the "Book Parcel" tab to trigger the simulation.
-          </p>
+          <h3 className="text-lg font-bold text-white/40">Loading tracking data…</h3>
+          <p className="text-sm text-white/20 mt-1.5 max-w-md">Please wait while we fetch your parcel logs.</p>
         </div>
-      )}
+      ) : null}
     </DashboardLayout>
   );
-};
+}
 
-export default TrackParcel;
